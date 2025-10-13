@@ -4,10 +4,11 @@ Local Ollama LLM integration for persona response generation
 
 import httpx
 import json
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, AsyncGenerator
 from abc import ABC, abstractmethod
 import asyncio
 from datetime import datetime
+import logging
 
 from ..models import Persona, ConversationContext
 
@@ -24,6 +25,17 @@ class LLMProvider(ABC):
         constraints: Optional[Dict[str, Any]] = None
     ) -> str:
         """Generate a response from the LLM"""
+        pass
+    
+    @abstractmethod
+    async def generate_response_stream(
+        self, 
+        prompt: str, 
+        persona: Persona,
+        context: ConversationContext,
+        constraints: Optional[Dict[str, Any]] = None
+    ) -> AsyncGenerator[str, None]:
+        """Generate a streaming response from the LLM"""
         pass
     
     @abstractmethod
@@ -90,6 +102,72 @@ class OllamaProvider(LLMProvider):
         except Exception as e:
             print(f"Error calling Ollama: {e}")
             return self._generate_fallback_response(persona, context)
+    
+    async def generate_response_stream(
+        self, 
+        prompt: str, 
+        persona: Persona,
+        context: ConversationContext,
+        constraints: Optional[Dict[str, Any]] = None
+    ) -> AsyncGenerator[str, None]:
+        """Generate streaming response using Ollama"""
+        
+        logger = logging.getLogger(__name__)
+        
+        # Build the full prompt with persona context
+        full_prompt = self._build_persona_prompt(prompt, persona, context, constraints)
+        
+        try:
+            # Call Ollama streaming API
+            model_to_use = constraints.get("model", self.default_model) if constraints else self.default_model
+            payload = {
+                "model": model_to_use,
+                "prompt": full_prompt,
+                "stream": True,  # Enable streaming
+                "options": self._get_generation_options(constraints)
+            }
+            
+            logger.info(f"🌊 Starting streaming response with model: {model_to_use}")
+            
+            # Use httpx streaming
+            async with self.client.stream(
+                'POST', 
+                f"{self.base_url}/api/generate",
+                json=payload
+            ) as response:
+                
+                if response.status_code != 200:
+                    logger.error(f"❌ Ollama streaming error: {response.status_code}")
+                    # Fallback to single chunk
+                    yield self._generate_fallback_response(persona, context)
+                    return
+                
+                # Process streaming response
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        try:
+                            chunk_data = json.loads(line)
+                            
+                            # Extract response chunk
+                            if "response" in chunk_data:
+                                chunk_text = chunk_data["response"]
+                                if chunk_text:  # Only yield non-empty chunks
+                                    yield chunk_text
+                            
+                            # Check if streaming is complete
+                            if chunk_data.get("done", False):
+                                logger.info("✅ Ollama streaming completed successfully")
+                                break
+                                
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Failed to parse streaming chunk: {e}")
+                            continue
+                            
+        except Exception as e:
+            logger.error(f"Error in Ollama streaming: {e}")
+            # Fallback to single response chunk
+            fallback = self._generate_fallback_response(persona, context)
+            yield fallback
     
     def _build_persona_prompt(
         self, 
@@ -347,6 +425,54 @@ class LLMManager:
         }
         
         return int(base_tokens * multipliers.get(response_type, 1.0))
+    
+    async def generate_response_stream(
+        self, 
+        user_input: str,
+        persona: Persona,
+        context: ConversationContext,
+        constraints: Optional[Dict[str, Any]] = None
+    ) -> AsyncGenerator[str, None]:
+        """Generate streaming response using the default provider"""
+        async for chunk in self.ollama.generate_response_stream(user_input, persona, context, constraints):
+            yield chunk
+    
+    async def generate_response_stream_by_score(
+        self, 
+        continue_score: int, 
+        user_input: str,
+        persona: Persona,
+        context: ConversationContext
+    ) -> AsyncGenerator[tuple[str, str], None]:
+        """Generate streaming response based on continue score (yields chunk, response_type)"""
+        
+        if continue_score >= 80:
+            # High engagement: Full streaming LLM with high creativity
+            constraints = {"creativity": 0.8, "max_length": 100}
+            async for chunk in self.ollama.generate_response_stream(user_input, persona, context, constraints):
+                yield chunk, "full_llm"
+        
+        elif continue_score >= 60:
+            # Medium engagement: Standard streaming LLM response
+            constraints = {"creativity": 0.6, "max_length": 100}
+            async for chunk in self.ollama.generate_response_stream(user_input, persona, context, constraints):
+                yield chunk, "full_llm"
+        
+        elif continue_score >= 40:
+            # Low engagement: Constrained streaming response
+            constraints = {
+                "max_length": 50,
+                "style": "concise", 
+                "creativity": 0.5,
+                "prepare_exit": True
+            }
+            async for chunk in self.ollama.generate_response_stream(user_input, persona, context, constraints):
+                yield chunk, "constrained"
+        
+        else:
+            # Very low engagement: Template response (single chunk)
+            template_response = self._generate_template_response(persona, context)
+            yield template_response, "template"
     
     async def close(self):
         """Clean up all providers"""

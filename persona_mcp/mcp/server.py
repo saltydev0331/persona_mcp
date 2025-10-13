@@ -9,6 +9,7 @@ from aiohttp import web, WSMsgType
 import aiohttp
 
 from .handlers import MCPHandlers
+from .streaming_handlers import StreamingMCPHandlers
 from ..conversation import ConversationEngine
 from ..persistence import SQLiteManager, VectorMemoryManager
 from ..llm import LLMManager
@@ -47,6 +48,16 @@ class MCPWebSocketServer:
             self.memory_manager,
             self.llm_manager
         )
+        
+        # Initialize streaming handlers (after regular handlers for state sharing)
+        self.streaming_handlers = StreamingMCPHandlers(
+            self.conversation_engine,
+            self.db_manager,
+            self.memory_manager,
+            self.llm_manager
+        )
+        # Share state with regular handlers
+        self.streaming_handlers._regular_handlers = self.mcp_handlers
         
         # Web application
         self.app = web.Application()
@@ -212,11 +223,19 @@ class MCPWebSocketServer:
                         # Parse JSON-RPC request
                         request_data = json.loads(msg.data)
                         
-                        # Handle MCP request
-                        response = await self.mcp_handlers.handle_request(request_data)
+                        # Create WebSocket sender function for streaming
+                        async def websocket_sender(message: str):
+                            await ws.send_str(message)
                         
-                        # Send response
-                        await ws.send_str(response.model_dump_json())
+                        # Check if it's a streaming request first
+                        handled_as_stream = await self.streaming_handlers.handle_streaming_request(
+                            request_data, websocket_sender
+                        )
+                        
+                        # If not handled as stream, use regular handler
+                        if not handled_as_stream:
+                            response = await self.mcp_handlers.handle_request(request_data)
+                            await ws.send_str(response.model_dump_json())
                         
                     except json.JSONDecodeError as e:
                         # Invalid JSON
