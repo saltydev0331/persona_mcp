@@ -20,8 +20,17 @@ class SQLiteManager:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
     async def initialize(self):
-        """Initialize database with required tables"""
+        """Initialize database with required tables and optimizations"""
         async with aiosqlite.connect(self.db_path) as db:
+            # Enable WAL mode for better concurrent access and performance
+            await db.execute("PRAGMA journal_mode=WAL")
+            
+            # Additional performance optimizations
+            await db.execute("PRAGMA synchronous=NORMAL")  # Faster than FULL, safer than OFF
+            await db.execute("PRAGMA cache_size=10000")    # 10MB cache
+            await db.execute("PRAGMA temp_store=MEMORY")   # Store temp tables in memory
+            await db.execute("PRAGMA mmap_size=268435456") # 256MB memory-mapped I/O
+            
             await self._create_tables(db)
 
     async def _create_tables(self, db: aiosqlite.Connection):

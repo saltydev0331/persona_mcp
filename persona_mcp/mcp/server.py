@@ -2,7 +2,6 @@
 WebSocket server for MCP JSON-RPC 2.0 protocol
 """
 
-import json
 import logging
 import asyncio
 from typing import Dict, Any, Optional
@@ -13,6 +12,7 @@ from .handlers import MCPHandlers
 from ..conversation import ConversationEngine
 from ..persistence import SQLiteManager, VectorMemoryManager
 from ..llm import LLMManager
+from ..utils import fast_json as json  # Use optimized JSON
 
 
 class MCPWebSocketServer:
