@@ -9,6 +9,7 @@ import uuid
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
+from ..config import get_config
 from ..models import MCPRequest, MCPResponse, MCPError, Persona, ConversationContext, ConversationTurn, Memory, Priority
 from ..conversation import ConversationEngine
 from ..persistence import SQLiteManager, VectorMemoryManager
@@ -49,10 +50,13 @@ class MCPHandlers:
         self.current_persona_id: Optional[str] = None
         self.current_conversation_id: Optional[str] = None
         
-        # Context management settings
-        self.max_context_messages = 20  # Keep last 20 messages in active context
-        self.context_summary_threshold = 50  # Summarize when > 50 messages
-        self.session_timeout_hours = 24  # Sessions expire after 24 hours
+        # Get configuration instance
+        self.config = get_config()
+        
+        # Context management settings from config
+        self.max_context_messages = self.config.session.max_context_messages
+        self.context_summary_threshold = self.config.session.context_summary_threshold
+        self.session_timeout_hours = self.config.session.session_timeout_hours
         
         # Method registry
         self.handlers = {

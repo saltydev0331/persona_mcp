@@ -120,15 +120,71 @@ This document captures the planned features and implementation roadmap for the P
 - **Fine-tuning Integration**: Support for persona-specific fine-tuned models
 - **Prompt Engineering**: Advanced prompt templates and optimization
 
+## Immediate Next Steps (v0.2.3 - Refactor & Cleanup)
+
+### 🚨 **Critical Refactors (High Priority - 3-4 days)**
+
+#### 1. **Configuration Centralization**
+
+- [ ] Create `ConfigManager` class with environment variable loading
+- [ ] Move all hardcoded values to `.env` configuration (50+ magic numbers found)
+- [ ] Extract constants: `tick_interval=30`, `MAX_CONTEXT_MESSAGES=20`, `charisma=18`, etc.
+- [ ] Add runtime configuration validation and type checking
+- [ ] Update all imports to use centralized config
+
+#### 2. **Logging Standardization**
+
+- [ ] Standardize on structured logging with consistent logger instances
+- [ ] Fix mixed patterns: `logging.getLogger(__name__)` vs `logging.info()` direct calls
+- [ ] Add request/response correlation IDs for debugging
+- [ ] Clean up debug code in production files ("The Debug Tavern", test flags)
+
+#### 3. **Streaming Handler Architecture**
+
+- [ ] Fix hacky state sharing between regular and streaming handlers
+- [ ] Implement proper dependency injection instead of `._regular_handlers = self.mcp_handlers`
+- [ ] Create shared state manager for persona context
+- [ ] Standardize async/sync patterns throughout codebase
+
+### ⚠️ **Code Quality Improvements (Medium Priority - 2-3 days)**
+
+#### 4. **Magic Numbers & Constants**
+
+- [ ] Extract 50+ hardcoded values to named constants
+- [ ] Create `constants.py` for scoring thresholds, timeouts, limits
+- [ ] Move persona defaults, importance weights, decay rates to config
+- [ ] Document reasoning for specific values
+
+#### 5. **Exception Handling & Imports**
+
+- [ ] Standardize exception handling patterns (bare except vs specific)
+- [ ] Organize imports consistently (isort + black formatting)
+- [ ] Fix relative vs absolute import mixing
+- [ ] Add missing type hints for better IDE support
+
+#### 6. **File Organization**
+
+- [ ] Move test files from root to `/tests/integration/` and `/tests/unit/`
+- [ ] Create abstract base classes for LLMProvider, MemoryManager interfaces
+- [ ] Break large configuration classes into logical sub-configs
+
+### 💡 **Quick Wins (< 1 day)**
+
+- [ ] Add `.editorconfig` for consistent formatting
+- [ ] Create `constants.py` for immediate magic number extraction
+- [ ] Standardize all `logging.getLogger(__name__)` calls
+- [ ] Clean up unused imports and debug strings
+- [ ] Move test files to proper `/tests/` directory structure
+
 ## Technical Debt and Improvements
 
-### 🔧 Code Quality
+### 🔧 Code Quality (Post-Refactor)
 
-- [ ] Comprehensive error handling and logging
-- [ ] Type safety improvements
-- [ ] Performance optimization
-- [ ] Memory usage optimization
-- [ ] Connection pooling and resource management
+- [ ] Comprehensive error handling and logging (standardized)
+- [ ] Type safety improvements (enhanced)
+- [ ] Performance optimization (streaming complete)
+- [ ] Memory usage optimization (optimized)
+- [ ] Connection pooling and resource management (improved)
 
 ### 🚀 WebSocket Performance Optimization
 
@@ -190,21 +246,31 @@ This document captures the planned features and implementation roadmap for the P
 - ✅ orjson integration for fast JSON processing (76.8% improvement)
 - ✅ SQLite WAL mode and database optimization (20ms init)
 
-### v0.2.2 - LLM Response Streaming & UX Enhancement (Target: December 2025)
+### v0.2.2 - LLM Response Streaming & UX Enhancement - **COMPLETED** (October 2025)
 
-- **🌊 Real-time Response Streaming**: Live LLM response streaming over WebSocket
-  - Ollama streaming API integration (`stream: true`)
-  - Progressive response chunks with JSON-RPC 2.0 compatibility
-  - Client-side streaming support and typing effects
-  - Response cancellation and early termination
-- **⚡ Enhanced User Experience**: 6-14x faster perceived response times
-  - Time-to-first-token optimization (0.2-0.5s vs 3-7s)
-  - Live typing animation and immediate feedback
-  - Memory integration with streaming responses
-  - Streaming-aware conversation management
+- ✅ **Real-time Response Streaming**: Live LLM response streaming over WebSocket
+  - ✅ Ollama streaming API integration (`stream: true`) with AsyncGenerator
+  - ✅ Progressive response chunks with JSON-RPC 2.0 compatibility (60+ chunks/response)
+  - ✅ WebSocket streaming handlers with event types (start/chunk/complete/error)
+  - ✅ Memory integration with streaming responses for conversation storage
+- ✅ **Enhanced User Experience**: Sub-second time-to-first-token delivery
+  - ✅ Time-to-first-token optimization (~50-100ms vs 3-7s)
+  - ✅ Real-time chunk delivery (~17ms per chunk average)
+  - ✅ Streaming-aware conversation management and memory integration
+  - ✅ Production-ready streaming infrastructure (+967 lines)
 
-### v0.3.0 - Advanced Performance & Scaling (Target: Q1 2026)
+### v0.2.3 - Refactor & Cleanup (Target: January 2026)
 
+- Configuration centralization with ConfigManager
+- Logging standardization across codebase
+- Streaming handler architecture improvements
+- Magic number extraction and constants management
+- File organization and code quality improvements
+
+### v0.3.0 - Advanced Features & Client Support (Target: Q1 2026)
+
+- Client-side streaming support and UI integration
+- Advanced streaming controls (pause/resume/cancel)
 - Handler pooling system for MCPHandlers instances
 - Database connection pooling with aiosqlite
 - Background message processing workers

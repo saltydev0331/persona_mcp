@@ -7,6 +7,7 @@ import random
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 
+from ..config import get_config
 from ..models import (
     Persona, ConversationContext, ConversationTurn, Relationship, Memory, Priority
 )
@@ -27,6 +28,9 @@ class ConversationEngine:
         self.db = db_manager
         self.memory = memory_manager
         self.llm = llm_manager
+        
+        # Get configuration instance
+        self.config = get_config()
         
         # Memory importance scoring
         self.importance_scorer = MemoryImportanceScorer()
@@ -55,7 +59,7 @@ class ConversationEngine:
         social_score = await self._calculate_social_compatibility_score(persona, other_persona)
         
         # Fatigue penalty (0 to -15 points)
-        fatigue_penalty = min(15, persona.interaction_state.interaction_fatigue // 2)
+        fatigue_penalty = min(self.config.conversation.max_fatigue_penalty, persona.interaction_state.interaction_fatigue // 2)
         
         # Relationship history modifier (-10 to +15 points)
         history_modifier = await self._get_relationship_modifier(persona, other_persona)
@@ -77,29 +81,29 @@ class ConversationEngine:
     
     async def _calculate_time_pressure_score(self, persona: Persona, context: ConversationContext) -> float:
         """Calculate time pressure component of continue score"""
-        base_score = 30.0
+        base_score = self.config.conversation.max_time_score
         
         priority = persona.interaction_state.current_priority
         duration = context.duration
         
         if priority == Priority.URGENT:
             # Rapid decay for urgent priorities
-            decay_rate = duration / 2  # Decay every 2 seconds
+            decay_rate = duration / self.config.conversation.urgent_decay_rate
             return max(0, base_score - decay_rate)
         
         elif priority == Priority.IMPORTANT:
             # Moderate decay for important priorities
-            decay_rate = duration / 10  # Decay every 10 seconds
+            decay_rate = duration / self.config.conversation.important_decay_rate
             return max(0, base_score - decay_rate)
         
         elif priority == Priority.CASUAL or priority == Priority.SOCIAL:
             # Slow decay for casual/social priorities
-            decay_rate = duration / 30  # Decay every 30 seconds
+            decay_rate = duration / self.config.conversation.casual_decay_rate
             return max(0, base_score - decay_rate)
         
         else:
-            # Default decay
-            decay_rate = duration / 20
+            # Default decay (use important decay rate as default)
+            decay_rate = duration / self.config.conversation.important_decay_rate
             return max(0, base_score - decay_rate)
     
     async def _calculate_topic_alignment_score(
@@ -124,8 +128,8 @@ class ConversationEngine:
         if context.topic_drift_count > 2:
             topic_pull *= 0.6
         
-        # Scale to 0-25 range
-        return min(25, topic_pull * 25 / 100)
+        # Scale to configured max topic score range
+        return min(self.config.conversation.max_topic_score, topic_pull * self.config.conversation.max_topic_score / 100)
     
     async def _calculate_social_compatibility_score(
         self, 
@@ -140,37 +144,32 @@ class ConversationEngine:
         # Status compatibility (peers work better than extreme differences)
         status_modifier = self._get_status_compatibility(persona1, persona2)
         
-        # Scale to 0-20 range
+        # Scale to configured max social score range
         base_score = (charisma_compatibility + status_modifier) / 2
-        return min(20, base_score)
+        return min(self.config.conversation.max_social_score, base_score)
     
     def _get_status_compatibility(self, persona1: Persona, persona2: Persona) -> float:
         """Calculate status-based compatibility"""
         
-        status_hierarchy = {
-            "royalty": 5,
-            "nobility": 4,
-            "merchant": 3,
-            "commoner": 2,
-            "peasant": 1
-        }
+        status_hierarchy = self.config.conversation.status_hierarchy
         
-        status1 = status_hierarchy.get(persona1.social_rank, 2)
-        status2 = status_hierarchy.get(persona2.social_rank, 2)
+        default_status = status_hierarchy.get("commoner", 2)
+        status1 = status_hierarchy.get(persona1.social_rank, default_status)
+        status2 = status_hierarchy.get(persona2.social_rank, default_status)
         
         status_diff = abs(status1 - status2)
         
         # Peers (same status) have high compatibility
         if status_diff == 0:
-            return 8.0
+            return self.config.conversation.same_status_compatibility
         # Adjacent status levels work well
         elif status_diff == 1:
-            return 6.0
+            return self.config.conversation.adjacent_status_compatibility
         # Large status gaps create awkwardness
-        elif status_diff >= 3:
-            return 2.0
+        elif status_diff >= self.config.conversation.large_status_gap_threshold:
+            return self.config.conversation.distant_status_compatibility
         else:
-            return 4.0
+            return self.config.conversation.default_status_compatibility
     
     async def _get_relationship_modifier(self, persona1: Persona, persona2: Persona) -> float:
         """Get relationship history modifier"""
@@ -189,21 +188,24 @@ class ConversationEngine:
     def _calculate_resource_score(self, persona: Persona, context: ConversationContext) -> float:
         """Calculate resource availability score"""
         
-        score = 10.0
+        score = self.config.conversation.max_resource_score
         
         # Time availability check
-        if persona.interaction_state.available_time < 60:  # Less than 1 minute
-            time_factor = persona.interaction_state.available_time / 60
+        min_time_threshold = self.config.persona.min_time_threshold
+        if persona.interaction_state.available_time < min_time_threshold:
+            time_factor = persona.interaction_state.available_time / min_time_threshold
             score *= time_factor
         
         # Token budget check
-        if context.token_budget < 100:  # Low token budget
-            token_factor = context.token_budget / 100
+        low_token_budget = self.config.persona.low_token_budget
+        if context.token_budget < low_token_budget:
+            token_factor = context.token_budget / low_token_budget
             score *= token_factor
         
         # Social energy check
-        if persona.interaction_state.social_energy < 30:
-            energy_factor = persona.interaction_state.social_energy / 30
+        low_energy_threshold = self.config.persona.low_social_energy
+        if persona.interaction_state.social_energy < low_energy_threshold:
+            energy_factor = persona.interaction_state.social_energy / low_energy_threshold
             score *= energy_factor
         
         return score
@@ -501,13 +503,13 @@ class ConversationEngine:
     ):
         """Set cooldown periods based on conversation satisfaction"""
         
-        base_cooldown = 300  # 5 minutes base
+        base_cooldown = self.config.persona.base_cooldown_seconds
         
         # Adjust cooldown based on final continue score
-        if context.continue_score > 70:
-            cooldown = base_cooldown * 0.5  # Shorter for satisfying conversations
-        elif context.continue_score < 30:
-            cooldown = base_cooldown * 2   # Longer for unsatisfying conversations
+        if context.continue_score > self.config.persona.high_continue_score:
+            cooldown = base_cooldown * self.config.persona.satisfying_conversation_multiplier
+        elif context.continue_score < self.config.persona.low_continue_score:
+            cooldown = base_cooldown * self.config.persona.unsatisfying_conversation_multiplier
         else:
             cooldown = base_cooldown
         

@@ -8,6 +8,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
+from ..config import get_config
 from ..models import Persona, ConversationContext, SimulationState, Priority
 from ..conversation import ConversationEngine
 from ..persistence import SQLiteManager, VectorMemoryManager
@@ -29,17 +30,20 @@ class ChatroomSimulation:
         self.llm = llm_manager
         self.conversation = conversation_engine
         
+        # Get configuration instance
+        self.config = get_config()
+        
         # Simulation state
         self.state = SimulationState()
-        self.tick_interval = 30  # seconds between simulation ticks
+        self.tick_interval = self.config.session.tick_interval_seconds
         
         # Room configuration (virtual tavern for testing)
         self.room_config = {
-            "name": "The Debug Tavern",
-            "description": "A cozy virtual tavern for testing persona interactions",
-            "topics": ["gossip", "travel", "magic", "stories", "local_news"],
-            "max_concurrent_conversations": 3,
-            "energy_regen_rate": 2
+            "name": self.config.simulation.room_name,
+            "description": self.config.simulation.room_description,
+            "topics": self.config.simulation.default_topics,
+            "max_concurrent_conversations": self.config.simulation.max_concurrent_conversations,
+            "energy_regen_rate": self.config.simulation.energy_regen_rate
         }
         
         # Simulation topics that can spontaneously start conversations

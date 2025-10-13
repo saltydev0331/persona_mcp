@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 from aiohttp import web, WSMsgType
 import aiohttp
 
+from ..config import get_config
 from .handlers import MCPHandlers
 from .streaming_handlers import StreamingMCPHandlers
 from ..conversation import ConversationEngine
@@ -21,12 +22,15 @@ class MCPWebSocketServer:
     
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 8000,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
         path: str = "/mcp"
     ):
-        self.host = host
-        self.port = port
+        # Get configuration instance
+        self.config = get_config()
+        
+        self.host = host or self.config.server.host
+        self.port = port or self.config.server.port
         self.path = path
         
         # Initialize components
