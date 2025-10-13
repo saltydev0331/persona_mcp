@@ -95,10 +95,11 @@ class VectorMemoryManager:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 self.executor,
-                collection.add,
-                [memory.content],  # documents
-                [metadata],        # metadatas
-                [memory.id]        # ids
+                lambda: collection.add(
+                    documents=[memory.content],
+                    metadatas=[metadata],
+                    ids=[memory.id]
+                )
             )
             
             return True
