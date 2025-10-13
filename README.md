@@ -81,6 +81,20 @@ OLLAMA_HOST=http://localhost:11434
 DEFAULT_MODEL=llama3.1:8b
 ```
 
+## Performance
+
+**Current**: ~50 concurrent WebSocket connections, 1-7s response times  
+**Optimized**: 500+ connections, 2-3x faster processing with targeted improvements
+
+WebSocket MCP provides superior performance vs HTTP for conversational AI:
+
+- Persistent connections eliminate handshake overhead
+- Stateful session management keeps context in memory
+- Real-time bidirectional communication
+- Optimized for interactive persona conversations
+
+See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) for detailed optimization guide.
+
 ## Testing
 
 ```bash
@@ -89,6 +103,9 @@ python -m pytest tests/
 
 # Start simulation
 python -m persona_mcp.simulation.chatroom
+
+# Performance testing
+python client/mcp_client.py --auto-test
 ```
 
 ## License
