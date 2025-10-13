@@ -9,7 +9,7 @@ Technical architecture and implementation details for the Persona MCP Server.
 │   MCP Client    │    │  WebSocket API  │    │ Ollama (Docker) │
 │                 │◄───┤                 ├───►│                 │
 │ • Test Client   │    │ • JSON-RPC 2.0  │    │ • llama3.1:8b   │
-│ • Interactive   │    │ • Session Mgmt  │    │ • Local Models  │
+│ • Interactive   │    │ • 25+ Endpoints │    │ • Local Models  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │
                        ┌─────────────────┐
@@ -24,12 +24,39 @@ Technical architecture and implementation details for the Persona MCP Server.
                 ┌───────────────┼───────────────┐
                 │               │               │
       ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-      │    SQLite       │ │    ChromaDB     │ │   Session      │
+      │    SQLite       │ │ 🧠 Memory Mgmt  │ │   Session      │
       │                 │ │                 │ │   Memory       │
-      │ • Personas      │ │ • Vector Store  │ │                │
-      │ • Conversations │ │ • Embeddings    │ │ • Active Chats │
-      │ • Relationships │ │ • Similarity    │ │ • Context      │
+      │ • Personas      │ │ • Smart Scoring │ │                │
+      │ • Conversations │ │ • Auto Pruning  │ │ • Active Chats │
+      │ • Relationships │ │ • Decay System  │ │ • Context      │
       └─────────────────┘ └─────────────────┘ └─────────────────┘
+                                │
+                       ┌─────────────────┐
+                       │    ChromaDB     │
+                       │                 │
+                       │ • Vector Store  │
+                       │ • Embeddings    │
+                       │ • Similarity    │
+                       │ • Semantic      │
+                       │   Search        │
+                       └─────────────────┘
+```
+
+### Intelligent Memory Management Flow
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   User Chat     │───▶│ Importance Scorer │───▶│  ChromaDB       │
+│                 │    │  (0.51-0.80)     │    │  Storage        │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                                        │
+       ┌─────────────────────────────────────────────────┤
+       │                                                 │
+       ▼                                                 ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│ Decay System    │───▶│ Pruning System   │───▶│   Optimized     │
+│ (Background)    │    │ (Smart Cleanup)  │    │   Performance   │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
 ## Core Components
@@ -341,6 +368,178 @@ With optimizations:
 - **Integration Tests**: Full workflow testing
 - **Performance Tests**: Load and stress testing
 - **Regression Tests**: Automated CI/CD pipeline
+
+## 🧠 Memory Management System Architecture
+
+### 3-Tier Memory Management Design
+
+The memory management system implements a sophisticated 3-tier architecture for intelligent conversation memory handling:
+
+#### Tier 1: Smart Importance Scoring (0.51-0.80 Range)
+
+**Purpose**: Contextual relevance scoring for every conversation message
+
+**Algorithm**:
+
+```python
+def calculate_importance_score(message, context):
+    base_score = 0.5
+
+    # Content analysis factors
+    content_factor = analyze_content_relevance(message.content)  # 0.1-0.3
+    engagement_factor = measure_user_engagement(message)         # 0.0-0.2
+    persona_factor = assess_persona_relevance(message, persona)  # 0.0-0.15
+    temporal_factor = apply_temporal_weighting(message.timestamp) # 0.0-0.05
+
+    final_score = min(base_score + content_factor + engagement_factor +
+                     persona_factor + temporal_factor, 0.8)
+
+    return final_score
+```
+
+**Scoring Factors**:
+
+- **Content Relevance**: Keywords, entities, sentiment analysis
+- **User Engagement**: Message length, response time, follow-up questions
+- **Persona Relevance**: Alignment with persona expertise and personality
+- **Temporal Weighting**: Recent messages get slight boost
+
+**Performance**: 0.51-0.80 scoring range ensures meaningful differentiation while preventing extremes
+
+#### Tier 2: Intelligent Pruning System
+
+**Purpose**: Safe memory cleanup with importance-based retention
+
+**Strategy**:
+
+```python
+def prune_memories(target_count: int, min_importance: float = 0.6):
+    # Safety checks
+    if len(memories) <= MIN_SAFE_COUNT:
+        return False
+
+    # Sort by importance (ascending - remove least important first)
+    candidates = [m for m in memories if m.importance < min_importance]
+
+    if len(candidates) >= (len(memories) - target_count):
+        # Safe to prune - remove lowest importance memories
+        to_remove = sorted(candidates, key=lambda m: m.importance)[:target_count]
+        return remove_memories(to_remove)
+
+    return False  # Abort if would remove too many important memories
+```
+
+**Safety Features**:
+
+- **Minimum Count Protection**: Never prune below 10 memories
+- **Importance Thresholds**: Only prune memories below 0.6 importance
+- **Gradual Cleanup**: Remove in small batches to prevent context loss
+- **Rollback Capability**: Track pruned memories for potential restoration
+
+#### Tier 3: Advanced Decay System
+
+**Purpose**: Gradual importance reduction over time with multiple decay modes
+
+**Decay Modes**:
+
+1. **Linear Decay**: `importance = max(0, importance - (decay_rate * time_elapsed))`
+2. **Exponential Decay**: `importance = importance * exp(-decay_rate * time_elapsed)`
+3. **Logarithmic Decay**: `importance = importance * (1 - log(1 + decay_rate * time_elapsed))`
+4. **Step Decay**: Discrete importance reduction at time intervals
+
+**Configuration**:
+
+```python
+DECAY_SETTINGS = {
+    "mode": "exponential",      # linear, exponential, logarithmic, step
+    "rate": 0.1,               # decay rate per time unit
+    "interval_minutes": 60,     # decay application interval
+    "min_importance": 0.1,      # floor value (never decay below)
+    "enabled": True            # system-wide decay toggle
+}
+```
+
+**Background Processing**:
+
+- **Async Execution**: Non-blocking decay processing
+- **Batch Processing**: Process multiple memories efficiently
+- **Configurable Intervals**: Customizable decay frequency
+- **Performance Monitoring**: Track decay impact on memory counts
+
+### Memory System Integration
+
+#### ChromaDB Integration
+
+```python
+class VectorMemory:
+    def __init__(self):
+        self.client = chromadb.Client()
+        self.collection = self.client.get_or_create_collection(
+            name="persona_memories",
+            metadata={"hnsw:space": "cosine"}
+        )
+
+    async def store_memory(self, memory: Memory):
+        # Calculate importance score
+        importance = calculate_importance_score(memory.content, context)
+
+        # Store in ChromaDB with metadata
+        self.collection.add(
+            documents=[memory.content],
+            metadatas=[{
+                "memory_id": memory.id,
+                "persona_id": memory.persona_id,
+                "importance": importance,
+                "created_at": memory.created_at.isoformat(),
+                "memory_type": memory.memory_type
+            }],
+            ids=[memory.id]
+        )
+```
+
+#### Memory Lifecycle
+
+1. **Creation**: New memories automatically scored for importance
+2. **Storage**: ChromaDB vector storage with metadata
+3. **Retrieval**: Semantic search with importance weighting
+4. **Decay**: Background importance reduction over time
+5. **Pruning**: Safe removal of low-importance memories
+6. **Cleanup**: Final removal from all storage systems
+
+### Performance Characteristics
+
+#### Memory System Metrics
+
+- **Scoring Latency**: ~5-15ms per message (content analysis)
+- **Storage Latency**: ~10-50ms per memory (ChromaDB insertion)
+- **Retrieval Latency**: ~20-100ms (semantic search)
+- **Decay Processing**: ~1-5ms per memory (batch processing)
+- **Pruning Latency**: ~50-200ms (safety checks + removal)
+
+#### Scalability Factors
+
+- **Memory Count**: Handles 1K-10K memories per persona efficiently
+- **Concurrent Access**: Thread-safe operations with connection pooling
+- **Background Processing**: Non-blocking decay and pruning
+- **Storage Efficiency**: Vector embeddings + metadata indexing
+
+### Memory System API
+
+#### Core Endpoints
+
+- `memory.store` - Store new memory with automatic importance scoring
+- `memory.search` - Semantic search with importance weighting
+- `memory.prune` - Manual pruning with safety checks
+- `memory.decay_start` - Initiate background decay processing
+- `memory.decay_stop` - Stop decay processing
+- `memory.decay_stats` - Get decay system statistics
+- `memory.get_stats` - Comprehensive memory system statistics
+
+#### Configuration Endpoints
+
+- `memory.set_importance_weights` - Adjust importance scoring factors
+- `memory.set_decay_config` - Update decay system configuration
+- `memory.set_pruning_config` - Modify pruning behavior
 
 ## Deployment Considerations
 

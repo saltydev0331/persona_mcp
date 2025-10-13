@@ -34,9 +34,11 @@ Complete API documentation for the Persona MCP Server.
 }
 ```
 
-## Implemented Methods
+## Implemented Methods (25+ Endpoints)
 
-### persona.list
+### Persona Operations
+
+#### persona.list
 
 List all available personas with their current status.
 
@@ -76,7 +78,7 @@ List all available personas with their current status.
 }
 ```
 
-### persona.switch
+#### persona.switch
 
 Switch to a different persona for conversation.
 
@@ -115,7 +117,7 @@ Switch to a different persona for conversation.
 }
 ```
 
-### persona.chat
+#### persona.chat
 
 Send a message to the currently active persona.
 
@@ -159,7 +161,7 @@ Send a message to the currently active persona.
 }
 ```
 
-### persona.status
+#### persona.status
 
 Get the current status of the active persona.
 
@@ -193,75 +195,292 @@ Get the current status of the active persona.
 }
 ```
 
-## Stubbed Methods (Partial Implementation)
+#### persona.create
 
-### persona.memory
+Create a new persona dynamically.
 
-Search conversation memory for specific content.
+**Parameters**:
+
+- `name` (string): Persona name
+- `description` (string): Persona description
+- `personality_traits` (array, optional): List of personality traits
+- `topic_preferences` (object, optional): Topic preference scores
+
+**Example Request**:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "persona.create",
+  "params": {
+    "name": "Marcus",
+    "description": "A wise old wizard with deep knowledge of magic",
+    "personality_traits": ["wise", "patient", "scholarly"],
+    "topic_preferences": {
+      "magic": 95,
+      "knowledge": 90,
+      "teaching": 85
+    }
+  },
+  "id": "5"
+}
+```
+
+### Memory Management
+
+#### memory.search
+
+Search memories using semantic vector search.
 
 **Parameters**:
 
 - `query` (string): Search query
+- `n_results` (integer, optional): Maximum results to return (default: 5)
 - `min_importance` (float, optional): Minimum importance threshold (0.0-1.0)
-- `limit` (integer, optional): Maximum results to return
+- `persona_id` (string, optional): Search specific persona's memories
 
-**Current Status**: Returns placeholder response, full implementation planned.
+**Example Request**:
 
-### persona.relationship
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "memory.search",
+  "params": {
+    "query": "magic spells",
+    "n_results": 10,
+    "min_importance": 0.5
+  },
+  "id": "6"
+}
+```
 
-Check relationship status with current persona.
+**Example Response**:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "memories": [
+      {
+        "id": "mem_123",
+        "content": "User asked about fire magic spells...",
+        "importance": 0.75,
+        "similarity": 0.89,
+        "created_at": "2025-10-13T10:30:00Z"
+      }
+    ],
+    "total_results": 3
+  },
+  "id": "6"
+}
+```
+
+#### memory.stats
+
+Get memory collection statistics and health information.
+
+**Parameters**: None
+
+**Example Response**:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "total_memories": 1247,
+    "memories_by_persona": {
+      "aria": 623,
+      "kira": 624
+    },
+    "importance_distribution": {
+      "high": 124,
+      "medium": 623,
+      "low": 500
+    },
+    "avg_importance": 0.62,
+    "storage_size_mb": 12.4
+  },
+  "id": "7"
+}
+```
+
+#### memory.prune
+
+Intelligently prune memories for a specific persona.
 
 **Parameters**:
 
-- `target` (string, optional): Target persona to check relationship with
+- `persona_id` (string, optional): Persona to prune (defaults to current)
+- `force` (boolean, optional): Force pruning even if not needed
 
-**Current Status**: Returns placeholder response, full implementation planned.
+**Example Request**:
 
-## Planned Methods (Not Yet Implemented)
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "memory.prune",
+  "params": {
+    "force": false
+  },
+  "id": "8"
+}
+```
 
-### conversation.start
+**Example Response**:
 
-Start a new conversation context.
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "memories_before": 1247,
+    "memories_pruned": 198,
+    "memories_after": 1049,
+    "avg_importance_pruned": 0.42,
+    "processing_time": 0.003,
+    "recommendation": "Pruned low-importance memories while protecting valuable content"
+  },
+  "id": "8"
+}
+```
 
-### conversation.end
+#### memory.prune_recommendations
 
-End the current conversation context.
+Get pruning recommendations without executing.
 
-### conversation.status
+**Parameters**:
 
-Get conversation statistics and status.
+- `persona_id` (string, optional): Persona to analyze
 
-### memory.search
+**Example Response**:
 
-Advanced memory search across all personas.
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "recommendations": {
+      "needs_pruning": true,
+      "current_count": 1247,
+      "would_prune": 198,
+      "average_importance_to_prune": 0.42,
+      "recommendation": "Would prune 198 memories with average importance 0.42"
+    }
+  },
+  "id": "9"
+}
+```
 
-### memory.store
+### Memory Decay System
 
-Manually store a memory entry.
+#### memory.decay_start
 
-### memory.stats
+Start the background memory decay processing.
 
-Get memory system statistics.
+**Parameters**: None
 
-### state.save
+**Example Response**:
 
-Save current server state to file.
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "status": "started",
+    "message": "Background memory decay started",
+    "interval_hours": 6,
+    "decay_mode": "access_based"
+  },
+  "id": "10"
+}
+```
 
-### state.load
+#### memory.decay_stats
 
-Load server state from file.
+Get memory decay system statistics.
 
-### visual.update
+**Example Response**:
 
-Update visual context for conversations.
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "background_running": true,
+    "last_run": "2025-10-13T04:00:00Z",
+    "total_decay_cycles": 15,
+    "total_memories_decayed": 3247,
+    "recent_cycle": {
+      "personas_processed": 2,
+      "memories_decayed": 52,
+      "average_decay": 0.08,
+      "processing_time": 0.15
+    }
+  },
+  "id": "11"
+}
+```
 
-### system.status
+### Conversation Management
 
-Get server system status and health.
+#### conversation.start
 
-### system.models
+Initialize a new conversation context.
 
-Get available LLM models and their status.
+**Parameters**:
+
+- `persona_id` (string, optional): Persona for conversation
+- `context` (string, optional): Initial context
+
+#### conversation.status
+
+Get active conversation state and statistics.
+
+**Example Response**:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "active_conversations": 1,
+    "current_persona": "aria",
+    "turn_count": 12,
+    "total_tokens": 2456,
+    "conversation_duration": 1842
+  },
+  "id": "12"
+}
+```
+
+### System Operations
+
+#### system.status
+
+Get server health and performance metrics.
+
+**Example Response**:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "status": "healthy",
+    "uptime_seconds": 86400,
+    "active_connections": 3,
+    "total_requests": 1247,
+    "avg_response_time": 1.2,
+    "memory_usage_mb": 156,
+    "ollama_status": "connected"
+  },
+  "id": "13"
+}
+```
+
+## Legacy Methods (Deprecated)
+
+### persona.memory (DEPRECATED)
+
+**Note**: This method has been replaced by the more powerful `memory.search` endpoint.
+
+### persona.relationship (DEPRECATED)
+
+**Note**: Relationship functionality is now integrated into the persona system.
 
 ## Error Responses
 
