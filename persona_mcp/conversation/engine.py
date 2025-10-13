@@ -12,6 +12,7 @@ from ..models import (
 )
 from ..persistence import SQLiteManager, VectorMemoryManager
 from ..llm import LLMManager
+from ..memory import MemoryImportanceScorer
 
 
 class ConversationEngine:
@@ -26,6 +27,9 @@ class ConversationEngine:
         self.db = db_manager
         self.memory = memory_manager
         self.llm = llm_manager
+        
+        # Memory importance scoring
+        self.importance_scorer = MemoryImportanceScorer()
         
         # Active conversations
         self.active_conversations: Dict[str, ConversationContext] = {}
@@ -393,15 +397,45 @@ class ConversationEngine:
     ):
         """Store conversation turn as memory for both personas"""
         
-        # Calculate memory importance based on continue score and relationship
-        importance = (turn.continue_score / 100) * 0.7 + 0.3  # Base importance + score factor
+        # Get relationship for importance calculation
+        relationship = await self._get_relationship(speaker.id, other_persona.id)
+        
+        # Calculate intelligent memory importance for speaker
+        speaker_importance = self.importance_scorer.calculate_importance(
+            content=turn.content,
+            speaker=speaker,
+            listener=other_persona,
+            context={
+                'continue_score': turn.continue_score,
+                'topic': context.topic,
+                'conversation_id': context.id,
+                'turn_number': turn.turn_number
+            },
+            turn=turn,
+            relationship=relationship
+        )
+        
+        # Calculate intelligent memory importance for listener (slightly reduced)
+        listener_importance = self.importance_scorer.calculate_importance(
+            content=f"{speaker.name} said to me: {turn.content}",
+            speaker=other_persona,  # Listener becomes the "speaker" for their memory
+            listener=speaker,
+            context={
+                'continue_score': turn.continue_score,
+                'topic': context.topic,
+                'conversation_id': context.id,
+                'turn_number': turn.turn_number
+            },
+            turn=turn,
+            relationship=relationship
+        ) * 0.8  # Reduce by 20% since they didn't speak
         
         # Create memory for speaker
         speaker_memory = Memory(
             persona_id=speaker.id,
             content=f"I said to {other_persona.name}: {turn.content}",
             memory_type="conversation",
-            importance=importance,
+            importance=speaker_importance,
             emotional_valence=self._calculate_emotional_valence(turn.continue_score),
             related_personas=[other_persona.id],
             metadata={
@@ -417,7 +451,7 @@ class ConversationEngine:
             persona_id=other_persona.id,
             content=f"{speaker.name} said to me: {turn.content}",
             memory_type="conversation",
-            importance=importance * 0.8,  # Slightly less important for listener
+            importance=listener_importance,
             emotional_valence=self._calculate_emotional_valence(turn.continue_score),
             related_personas=[speaker.id],
             metadata={

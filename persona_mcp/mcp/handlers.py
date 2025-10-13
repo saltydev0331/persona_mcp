@@ -13,6 +13,7 @@ from ..models import MCPRequest, MCPResponse, MCPError, Persona, ConversationCon
 from ..conversation import ConversationEngine
 from ..persistence import SQLiteManager, VectorMemoryManager
 from ..llm import LLMManager
+from ..memory import MemoryImportanceScorer, MemoryPruningSystem, PruningConfig, MemoryDecaySystem, DecayConfig
 
 
 class MCPHandlers:
@@ -29,6 +30,15 @@ class MCPHandlers:
         self.db = db_manager
         self.memory = memory_manager
         self.llm = llm_manager
+        
+        # Memory importance scoring
+        self.importance_scorer = MemoryImportanceScorer()
+        
+        # Memory pruning system
+        self.pruning_system = MemoryPruningSystem(memory_manager)
+        
+        # Memory decay system
+        self.decay_system = MemoryDecaySystem(memory_manager, self.pruning_system)
         
         # Session management
         self.session_id: str = str(uuid.uuid4())
@@ -64,6 +74,14 @@ class MCPHandlers:
             "memory.search": self.handle_memory_search,
             "memory.store": self.handle_memory_store,
             "memory.stats": self.handle_memory_stats,
+            "memory.prune": self.handle_memory_prune,
+            "memory.prune_all": self.handle_memory_prune_all,
+            "memory.prune_recommendations": self.handle_memory_prune_recommendations,
+            "memory.prune_stats": self.handle_memory_prune_stats,
+            "memory.decay_start": self.handle_memory_decay_start,
+            "memory.decay_stop": self.handle_memory_decay_stop,
+            "memory.decay_stats": self.handle_memory_decay_stats,
+            "memory.decay_force": self.handle_memory_decay_force,
             
             # State management
             "state.save": self.handle_state_save,
@@ -362,12 +380,29 @@ class MCPHandlers:
                 processing_time=processing_time
             )
             
+            # Calculate intelligent importance for user conversation
+            current_persona = await self.db.load_persona(self.current_persona_id)
+            memory_content = f"User said: {message}. I responded: {response}"
+            
+            importance = self.importance_scorer.calculate_importance(
+                content=memory_content,
+                speaker=current_persona,
+                listener=None,  # No specific listener for user conversations
+                context={
+                    'continue_score': 50.0,  # Default for direct user chat
+                    'topic': 'user_conversation',
+                    'response_type': 'direct'
+                },
+                turn=None,  # No specific turn object
+                relationship=None  # No relationship with user (yet)
+            )
+            
             # Store memory of this interaction
             await self.memory.store_memory(Memory(
                 persona_id=self.current_persona_id,
-                content=f"User said: {message}. I responded: {response}",
+                content=memory_content,
                 memory_type="conversation",
-                importance=0.8
+                importance=importance
             ))
             
         except Exception as e:
@@ -764,4 +799,132 @@ class MCPHandlers:
             return {
                 "current_persona": self.current_persona_id,
                 "relationships": [r.model_dump() for r in relationships]
+            }
+
+    async def handle_memory_prune(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Prune memories for current or specified persona"""
+        persona_id = params.get("persona_id", self.current_persona_id)
+        force = params.get("force", False)
+        
+        if not persona_id:
+            raise ValueError("No persona specified and no current persona selected")
+        
+        # Check if pruning is needed
+        needs_pruning = await self.pruning_system.should_prune_persona(persona_id)
+        if not needs_pruning and not force:
+            stats = await self.memory.get_memory_stats(persona_id)
+            return {
+                "status": "no_pruning_needed",
+                "persona_id": persona_id,
+                "current_memory_count": stats.get("total_memories", 0),
+                "message": "Memory collection is within acceptable limits"
+            }
+        
+        # Execute pruning
+        metrics = await self.pruning_system.prune_persona_memories(persona_id, force=force)
+        
+        return {
+            "status": "pruning_completed",
+            "persona_id": persona_id,
+            "memories_before": metrics.total_memories_before,
+            "memories_after": metrics.total_memories_after,
+            "memories_pruned": metrics.memories_pruned,
+            "processing_time": metrics.processing_time_seconds,
+            "average_importance_pruned": metrics.average_importance_pruned,
+            "average_importance_kept": metrics.average_importance_kept
+        }
+
+    async def handle_memory_prune_all(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Prune memories for all personas that need it"""
+        
+        metrics = await self.pruning_system.prune_all_personas()
+        
+        return {
+            "status": "global_pruning_completed",
+            "personas_processed": metrics.personas_processed,
+            "total_memories_before": metrics.total_memories_before,
+            "total_memories_after": metrics.total_memories_after,
+            "total_memories_pruned": metrics.memories_pruned,
+            "processing_time": metrics.processing_time_seconds,
+            "errors_encountered": metrics.errors_encountered
+        }
+
+    async def handle_memory_prune_recommendations(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get pruning recommendations without executing"""
+        persona_id = params.get("persona_id", self.current_persona_id)
+        
+        if not persona_id:
+            raise ValueError("No persona specified and no current persona selected")
+        
+        recommendations = await self.pruning_system.get_pruning_recommendations(persona_id)
+        
+        return {
+            "persona_id": persona_id,
+            "recommendations": recommendations
+        }
+
+    async def handle_memory_prune_stats(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get pruning system statistics"""
+        
+        stats = self.pruning_system.get_pruning_stats()
+        
+        return {
+            "pruning_statistics": stats
+        }
+
+    async def handle_memory_decay_start(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Start background memory decay processing"""
+        
+        await self.decay_system.start_background_decay()
+        
+        return {
+            "status": "background_decay_started",
+            "interval_hours": self.decay_system.config.decay_interval_hours,
+            "mode": self.decay_system.config.mode,
+            "auto_pruning": self.decay_system.config.enable_auto_pruning
+        }
+
+    async def handle_memory_decay_stop(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Stop background memory decay processing"""
+        
+        await self.decay_system.stop_background_decay()
+        
+        return {
+            "status": "background_decay_stopped"
+        }
+
+    async def handle_memory_decay_stats(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get memory decay system statistics"""
+        
+        stats = self.decay_system.get_decay_stats()
+        
+        return {
+            "decay_statistics": stats
+        }
+
+    async def handle_memory_decay_force(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Force decay cycle or specific persona decay"""
+        
+        persona_id = params.get("persona_id", self.current_persona_id)
+        decay_factor = params.get("decay_factor", 0.1)
+        
+        if persona_id:
+            # Force decay on specific persona
+            metrics = await self.decay_system.force_decay_persona(persona_id, decay_factor)
+            return {
+                "status": "persona_decay_completed",
+                "persona_id": persona_id,
+                "decay_factor": decay_factor,
+                "memories_processed": metrics.memories_processed,
+                "memories_decayed": metrics.memories_decayed
+            }
+        else:
+            # Force global decay cycle
+            metrics = await self.decay_system.run_decay_cycle()
+            return {
+                "status": "global_decay_cycle_completed",
+                "personas_processed": metrics.personas_processed,
+                "memories_decayed": metrics.memories_decayed,
+                "auto_prunes_triggered": metrics.auto_prunes_triggered,
+                "processing_time": metrics.processing_time_seconds
             }
