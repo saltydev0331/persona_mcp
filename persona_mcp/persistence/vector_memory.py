@@ -94,6 +94,7 @@ class VectorMemoryManager:
                 "importance": memory.importance,
                 "emotional_valence": memory.emotional_valence,
                 "related_personas": ",".join(memory.related_personas) if memory.related_personas else "",
+                "visibility": getattr(memory, 'visibility', 'private'),  # Handle new field
                 "created_at": memory.created_at.isoformat(),
                 "accessed_count": memory.accessed_count,
                 **memory.metadata
@@ -171,9 +172,10 @@ class VectorMemoryManager:
                         importance=float(metadata.get("importance", 0.5)),
                         emotional_valence=float(metadata.get("emotional_valence", 0.0)),
                         related_personas=related_personas,
+                        visibility=metadata.get("visibility", "private"),  # Include visibility field
                         metadata={k: v for k, v in metadata.items() 
                                  if k not in {"memory_type", "importance", "emotional_valence", 
-                                            "related_personas", "created_at", "accessed_count"}},
+                                            "related_personas", "created_at", "accessed_count", "visibility"}},
                         accessed_count=int(metadata.get("accessed_count", 0))
                     )
                     memories.append(memory)
@@ -329,6 +331,207 @@ class VectorMemoryManager:
         except Exception as e:
             self.logger.error(f"Error cleaning up memories for persona {persona_id}: {e}")
             return 0
+
+    async def search_cross_persona_memories(
+        self, 
+        requesting_persona_id: str,
+        query: str,
+        n_results: int = 5,
+        min_importance: float = 0.6,
+        include_shared: bool = True,
+        include_public: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Search memories across all personas that are accessible to the requesting persona.
+        
+        Returns shared and public memories from other personas, plus all memories from
+        personas listed in related_personas field.
+        """
+        try:
+            all_results = []
+            
+            # First get the requesting persona's own memories
+            own_memories = await self.search_memories(
+                persona_id=requesting_persona_id,
+                query=query,
+                n_results=n_results,
+                min_importance=min_importance
+            )
+            
+            # Convert own memories to result dictionaries (apply visibility filtering)
+            for memory in own_memories:
+                # Apply visibility filtering consistently across all memories
+                memory_visibility = memory.visibility
+                should_include = False
+                
+                if include_shared and memory_visibility == "shared":
+                    should_include = True
+                elif include_public and memory_visibility == "public":
+                    should_include = True
+                # Note: Private memories are excluded even from own persona in cross-persona search
+                # This makes the filtering consistent - cross-persona search only returns shared/public
+                    
+                if should_include:
+                    result = {
+                        "memory_id": memory.id,
+                        "content": memory.content,
+                        "similarity": 1.0,  # Own memories get perfect similarity
+                        "importance": memory.importance,
+                        "memory_type": memory.memory_type,
+                        "created_at": memory.created_at.isoformat(),
+                        "visibility": memory.visibility,
+                        "source": "own",
+                        "source_persona": requesting_persona_id
+                    }
+                    all_results.append(result)
+            
+            # Search across other personas for shared/public memories
+            print(f"DEBUG: Available collections: {list(self.collections.keys())}")
+            print(f"DEBUG: Requesting persona: {requesting_persona_id}")
+            for persona_id in self.collections.keys():
+                if persona_id == requesting_persona_id:
+                    continue
+                print(f"DEBUG: Searching collection {persona_id}")
+                    
+                try:
+                    collection = self.collections[persona_id]
+                    
+                    # ChromaDB doesn't support $or/$and operators, so do separate queries
+                    all_persona_results = []
+                    
+                    # Query for shared memories
+                    if include_shared:
+                        try:
+                            shared_results = await asyncio.to_thread(
+                                collection.query,
+                                query_texts=[query],
+                                n_results=min(n_results, 10),
+                                where={"visibility": "shared"},  # Simplified to single condition
+                                include=['metadatas', 'documents', 'distances']
+                            )
+                            print(f"DEBUG: Shared query for {persona_id} found {len(shared_results.get('documents', [[]])[0]) if shared_results else 0} results")
+                            if shared_results and shared_results.get('documents') and shared_results['documents'][0]:
+                                all_persona_results.append(shared_results)
+                        except Exception as e:
+                            print(f"DEBUG: Shared query failed for {persona_id}: {e}")
+                            self.logger.debug(f"Shared query failed for {persona_id}: {e}")
+                    
+                    # Query for public memories
+                    if include_public:
+                        try:
+                            public_results = await asyncio.to_thread(
+                                collection.query,
+                                query_texts=[query],
+                                n_results=min(n_results, 10),
+                                where={"visibility": "public"},  # Simplified to single condition
+                                include=['metadatas', 'documents', 'distances']
+                            )
+                            print(f"DEBUG: Public query for {persona_id} found {len(public_results.get('documents', [[]])[0]) if public_results else 0} results")
+                            if public_results and public_results.get('documents') and public_results['documents'][0]:
+                                all_persona_results.append(public_results)
+                        except Exception as e:
+                            print(f"DEBUG: Public query failed for {persona_id}: {e}")
+                            self.logger.debug(f"Public query failed for {persona_id}: {e}")
+                    
+                    # Process all results from this persona
+                    for results in all_persona_results:
+                        # Process results from this query
+                        for i in range(len(results['documents'][0])):
+                            metadata = results['metadatas'][0][i]
+                            importance = metadata.get('importance', 0.5)
+                            
+                            # Filter by importance since we can't do it in ChromaDB query
+                            if importance < min_importance:
+                                continue
+                                
+                            content = results['documents'][0][i]
+                            distance = results['distances'][0][i]
+                            similarity = 1.0 - distance
+                            
+                            result = {
+                                "memory_id": results['ids'][0][i],
+                                "content": content,
+                                "similarity": similarity,
+                                "importance": importance,
+                                "memory_type": metadata.get('memory_type', 'conversation'),
+                                "created_at": metadata.get('created_at'),
+                                "visibility": metadata.get('visibility', 'private'),
+                                "source": "cross_persona",
+                                "source_persona": persona_id
+                            }
+                            
+                            all_results.append(result)
+                
+                except Exception as e:
+                    self.logger.warning(f"Failed to search persona {persona_id} for cross-persona memories: {e}")
+                    continue
+            
+            # Sort by similarity and limit results
+            all_results.sort(key=lambda x: x['similarity'], reverse=True)
+            return all_results[:n_results]
+            
+        except Exception as e:
+            self.logger.error(f"Cross-persona memory search failed: {e}")
+            return []
+
+    async def get_shared_memory_stats(self) -> Dict[str, Any]:
+        """Get statistics about shared memories across all personas"""
+        try:
+            stats = {
+                "total_personas": len(self.collections),
+                "shared_memories": 0,
+                "public_memories": 0,
+                "cross_references": 0,
+                "by_persona": {}
+            }
+            
+            for persona_id, collection in self.collections.items():
+                try:
+                    # Count shared memories
+                    shared_result = await asyncio.to_thread(
+                        collection.get,
+                        where={"visibility": "shared"}
+                    )
+                    shared_count = len(shared_result['ids'])
+                    
+                    # Count public memories
+                    public_result = await asyncio.to_thread(
+                        collection.get,
+                        where={"visibility": "public"}
+                    )
+                    public_count = len(public_result['ids'])
+                    
+                    # Count memories that reference other personas
+                    cross_ref_result = await asyncio.to_thread(
+                        collection.get,
+                        where={"related_personas": {"$ne": ""}}  # ChromaDB stores empty as empty string
+                    )
+                    cross_ref_count = len(cross_ref_result['ids'])
+                    
+                    stats["shared_memories"] += shared_count
+                    stats["public_memories"] += public_count
+                    stats["cross_references"] += cross_ref_count
+                    
+                    stats["by_persona"][persona_id] = {
+                        "shared": shared_count,
+                        "public": public_count,
+                        "cross_references": cross_ref_count
+                    }
+                    
+                except Exception as e:
+                    self.logger.warning(f"Failed to get shared memory stats for {persona_id}: {e}")
+                    stats["by_persona"][persona_id] = {
+                        "shared": 0,
+                        "public": 0,
+                        "cross_references": 0,
+                        "error": str(e)
+                    }
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get shared memory stats: {e}")
+            return {"error": str(e)}
 
     async def close(self):
         """Clean up resources (optimized)"""

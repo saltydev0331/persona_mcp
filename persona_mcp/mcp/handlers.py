@@ -94,6 +94,10 @@ class MCPHandlers:
             "memory.decay_stats": self.handle_memory_decay_stats,
             "memory.decay_force": self.handle_memory_decay_force,
             
+            # Cross-persona memory endpoints
+            "memory.search_cross_persona": self.handle_memory_search_cross_persona,
+            "memory.shared_stats": self.handle_memory_shared_stats,
+            
             # State management
             "state.save": self.handle_state_save,
             "state.load": self.handle_state_load,
@@ -397,7 +401,8 @@ class MCPHandlers:
                 persona_id=current_persona_id,
                 content=memory_content,
                 memory_type="conversation",
-                importance=importance
+                importance=importance,
+                visibility="private"  # Conversations are private by default
             ))
             
         except Exception as e:
@@ -621,6 +626,7 @@ class MCPHandlers:
                     "importance": m.importance,
                     "emotional_valence": m.emotional_valence,
                     "related_personas": m.related_personas,
+                    "visibility": m.visibility,
                     "created_at": m.created_at.isoformat(),
                     "accessed_count": m.accessed_count
                 }
@@ -652,6 +658,7 @@ class MCPHandlers:
             importance=params.get("importance", 0.5),
             emotional_valence=params.get("emotional_valence", 0.0),
             related_personas=params.get("related_personas", []),
+            visibility=params.get("visibility", "private"),  # private, shared, public
             metadata=params.get("metadata", {})
         )
         
@@ -949,3 +956,56 @@ class MCPHandlers:
                 "auto_prunes_triggered": metrics.auto_prunes_triggered,
                 "processing_time": metrics.processing_time_seconds
             }
+
+    async def handle_memory_search_cross_persona(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Search memories across all personas with proper access controls"""
+        
+        # Get requesting persona
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
+        
+        if not persona_id:
+            raise ValueError("No active persona. Please switch to a persona first.")
+        
+        # Get search parameters
+        query = params.get("query", "")
+        if not query:
+            raise ValueError("Query is required")
+        
+        n_results = min(params.get("n_results", 10), 50)  # Max 50 results
+        min_importance = params.get("min_importance", 0.6)
+        include_shared = params.get("include_shared", True)
+        include_public = params.get("include_public", True)
+        
+        # Search across personas
+        memories = await self.memory.search_cross_persona_memories(
+            requesting_persona_id=persona_id,
+            query=query,
+            n_results=n_results,
+            min_importance=min_importance,
+            include_shared=include_shared,
+            include_public=include_public
+        )
+        
+        return {
+            "requesting_persona": persona_id,
+            "query": query,
+            "memories": memories,
+            "total_results": len(memories),
+            "search_params": {
+                "min_importance": min_importance,
+                "include_shared": include_shared,
+                "include_public": include_public
+            }
+        }
+
+    async def handle_memory_shared_stats(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get statistics about shared memories across all personas"""
+        
+        stats = await self.memory.get_shared_memory_stats()
+        
+        return {
+            "shared_memory_statistics": stats,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }

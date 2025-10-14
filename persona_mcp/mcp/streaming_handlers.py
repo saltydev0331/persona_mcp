@@ -305,17 +305,19 @@ class StreamingMCPHandlers:
             
             # Store memory if significant
             if len(response) > 50:  # Only store substantial responses
-                await self.memory.store_memory(
+                from ..models import Memory
+                await self.memory.store_memory(Memory(
                     persona_id=persona.id,
                     content=f"Conversation with user: '{user_message}' -> '{response[:100]}...'",
                     memory_type="conversation",
                     importance=0.6,  # Medium importance for streaming chats
+                    visibility="private",  # Streaming conversations are private by default
                     metadata={
                         "turn_id": turn.id,
                         "streaming": True,
                         "response_length": len(response)
                     }
-                )
+                ))
             
             self.logger.debug(f"Stored streaming conversation for {persona.name}")
             
