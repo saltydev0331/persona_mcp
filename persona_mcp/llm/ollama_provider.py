@@ -84,7 +84,7 @@ class OllamaProvider(LLMProvider):
             }
             
             # Log the model being used
-            self.logger.debug(f"🤖 Requesting Ollama model: {model_to_use}")
+            self.logger.debug(f"Requesting Ollama model: {model_to_use}")
             
             response = await self.client.post(
                 f"{self.base_url}/api/generate",
@@ -94,10 +94,10 @@ class OllamaProvider(LLMProvider):
             if response.status_code == 200:
                 result = response.json()
                 # Log confirmation of successful model usage
-                self.logger.debug(f"✅ Ollama responded successfully using model: {model_to_use}")
+                self.logger.debug(f"Ollama responded successfully using model: {model_to_use}")
                 return result.get("response", "").strip()
             else:
-                self.logger.error(f"❌ Ollama API error: {response.status_code} - {response.text}")
+                self.logger.error(f"Ollama API error: {response.status_code} - {response.text}")
                 return self._generate_fallback_response(persona, context)
                 
         except Exception as e:
@@ -128,7 +128,7 @@ class OllamaProvider(LLMProvider):
                 "options": self._get_generation_options(constraints)
             }
             
-            logger.info(f"🌊 Starting streaming response with model: {model_to_use}")
+            logger.info(f"Starting streaming response with model: {model_to_use}")
             
             # Use httpx streaming
             async with self.client.stream(
@@ -138,7 +138,7 @@ class OllamaProvider(LLMProvider):
             ) as response:
                 
                 if response.status_code != 200:
-                    logger.error(f"❌ Ollama streaming error: {response.status_code}")
+                    logger.error(f"Ollama streaming error: {response.status_code}")
                     # Fallback to single chunk
                     yield self._generate_fallback_response(persona, context)
                     return
@@ -157,7 +157,7 @@ class OllamaProvider(LLMProvider):
                             
                             # Check if streaming is complete
                             if chunk_data.get("done", False):
-                                logger.info("✅ Ollama streaming completed successfully")
+                                logger.info("Ollama streaming completed successfully")
                                 break
                                 
                         except json.JSONDecodeError as e:

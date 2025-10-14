@@ -11,6 +11,7 @@ from ..config import get_config
 from ..logging import get_logger, set_correlation_id, clear_correlation_id
 from .handlers import MCPHandlers
 from .streaming_handlers import StreamingMCPHandlers
+from .session import MCPSessionManager
 from ..conversation import ConversationEngine
 from ..persistence import SQLiteManager, VectorMemoryManager
 from ..llm import LLMManager
@@ -46,25 +47,26 @@ class MCPWebSocketServer:
             self.llm_manager
         )
         
-        # Initialize MCP handlers
+        # Initialize session manager for shared state
+        self.session_manager = MCPSessionManager()
+        
+        # Initialize MCP handlers with session manager
         self.mcp_handlers = MCPHandlers(
             self.conversation_engine,
             self.db_manager,
             self.memory_manager,
-            self.llm_manager
+            self.llm_manager,
+            self.session_manager
         )
         
-        # Initialize streaming handlers (after regular handlers for state sharing)
+        # Initialize streaming handlers with shared session manager
         self.streaming_handlers = StreamingMCPHandlers(
             self.conversation_engine,
             self.db_manager,
             self.memory_manager,
-            self.llm_manager
-        )
-        # Share state with regular handlers
-        self.streaming_handlers._regular_handlers = self.mcp_handlers
-        
-        # Web application
+            self.llm_manager,
+            self.session_manager
+        )        # Web application
         self.app = web.Application()
         self.app.router.add_get(self.path, self.websocket_handler)
         self.app.router.add_get("/", self.health_check)
@@ -96,6 +98,9 @@ class MCPWebSocketServer:
         
         # Start background tasks
         self._start_background_tasks()
+        
+        # Start session manager cleanup task
+        await self.session_manager.start_cleanup_task()
         
         self.logger.info("Persona MCP Server initialization complete")
     
@@ -219,9 +224,12 @@ class MCPWebSocketServer:
         connection_id = f"conn_{len(self.connections)}"
         self.connections[connection_id] = ws
         
+        # Set up session for this WebSocket connection
+        self.mcp_handlers.set_websocket_id(connection_id)
+        
         # Set correlation ID for this WebSocket connection
         set_correlation_id(connection_id)
-        self.logger.info(f"New WebSocket connection established")
+        self.logger.info(f"New WebSocket connection established: {connection_id}")
         
         try:
             async for msg in ws:
@@ -232,6 +240,11 @@ class MCPWebSocketServer:
                         
                         # Parse JSON-RPC request
                         request_data = json.loads(msg.data)
+                        
+                        # Add websocket_id to request params for streaming
+                        if "params" not in request_data:
+                            request_data["params"] = {}
+                        request_data["params"]["websocket_id"] = connection_id
                         
                         # Create WebSocket sender function for streaming
                         async def websocket_sender(message: str):
@@ -281,11 +294,15 @@ class MCPWebSocketServer:
             self.logger.error(f"WebSocket connection error: {e}")
         
         finally:
-            # Clean up connection
+            # Clean up connection and session data
             if connection_id in self.connections:
                 del self.connections[connection_id]
+            
+            # Clean up session state for this WebSocket
+            self.session_manager.cleanup_websocket_connection(connection_id)
+            
             set_correlation_id(connection_id)
-            self.logger.info("WebSocket connection closed")
+            self.logger.info(f"WebSocket connection closed: {connection_id}")
             clear_correlation_id()
         
         return ws
@@ -334,6 +351,9 @@ class MCPWebSocketServer:
                 await task
             except asyncio.CancelledError:
                 pass
+        
+        # Stop session manager cleanup task
+        await self.session_manager.stop_cleanup_task()
         
         # Close LLM manager
         await self.llm_manager.close()

@@ -189,7 +189,7 @@ class DatabaseConfig:
 @dataclass
 class SimulationConfig:
     """Chatroom simulation configuration"""
-    room_name: str = "The Debug Tavern"
+    room_name: str = "Virtual Persona Hub"
     room_description: str = "A cozy virtual tavern for testing persona interactions"
     default_topics: List[str] = field(default_factory=lambda: [
         "gossip", "travel", "magic", "stories", "local_news"
@@ -397,7 +397,7 @@ class ConfigManager:
             default_topics = [topic.strip() for topic in topics_str.split(",")]
         
         return SimulationConfig(
-            room_name=os.getenv("SIMULATION_ROOM_NAME", "The Debug Tavern"),
+            room_name=os.getenv("SIMULATION_ROOM_NAME", "Virtual Persona Hub"),
             room_description=os.getenv("SIMULATION_ROOM_DESCRIPTION", 
                                      "A cozy virtual tavern for testing persona interactions"),
             default_topics=default_topics,

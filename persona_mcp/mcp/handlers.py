@@ -15,6 +15,7 @@ from ..conversation import ConversationEngine
 from ..persistence import SQLiteManager, VectorMemoryManager
 from ..llm import LLMManager
 from ..memory import MemoryImportanceScorer, MemoryPruningSystem, PruningConfig, MemoryDecaySystem, DecayConfig
+from .session import MCPSessionManager
 
 
 class MCPHandlers:
@@ -25,12 +26,14 @@ class MCPHandlers:
         conversation_engine: ConversationEngine,
         db_manager: SQLiteManager,
         memory_manager: VectorMemoryManager,
-        llm_manager: LLMManager
+        llm_manager: LLMManager,
+        session_manager: MCPSessionManager
     ):
         self.conversation = conversation_engine
         self.db = db_manager
         self.memory = memory_manager
         self.llm = llm_manager
+        self.session = session_manager
         
         # Memory importance scoring
         self.importance_scorer = MemoryImportanceScorer()
@@ -41,14 +44,17 @@ class MCPHandlers:
         # Memory decay system
         self.decay_system = MemoryDecaySystem(memory_manager, self.pruning_system)
         
-        # Session management
+        # Session management (now handled by session manager)
         self.session_id: str = str(uuid.uuid4())
         self.session_created: datetime = datetime.utcnow()
-        self.conversations: Dict[str, Dict] = {}  # persona_id -> conversation_data
         
-        # Current session state
-        self.current_persona_id: Optional[str] = None
-        self.current_conversation_id: Optional[str] = None
+        # WebSocket connection ID (set by server when connection established)
+        self.websocket_id: Optional[str] = None
+    
+    def set_websocket_id(self, websocket_id: str):
+        """Set WebSocket connection ID for session management"""
+        self.websocket_id = websocket_id
+        self.logger.debug(f"Set WebSocket ID {websocket_id[:8]}... for handlers")
         
         # Get configuration instance and logger
         self.config = get_config()
@@ -139,22 +145,8 @@ class MCPHandlers:
     # Session and Context Management
     def _get_or_create_conversation(self, persona_id: str) -> str:
         """Get or create conversation for persona in current session"""
-        if persona_id not in self.conversations:
-            conversation_id = f"{self.session_id}_{persona_id}"
-            self.conversations[persona_id] = {
-                "id": conversation_id,
-                "persona_id": persona_id,
-                "created": datetime.utcnow(),
-                "messages": [],
-                "turn_count": 0,
-                "context_summary": None,
-                "last_activity": datetime.utcnow()
-            }
-        else:
-            # Update last activity
-            self.conversations[persona_id]["last_activity"] = datetime.utcnow()
-        
-        return self.conversations[persona_id]["id"]
+        # Use session manager for conversation handling
+        return self.session._get_or_create_conversation(persona_id)
     
     async def _add_message_to_conversation(self, persona_id: str, role: str, content: str, metadata: Dict = None):
         """Add message to conversation history with context management"""
@@ -283,14 +275,11 @@ class MCPHandlers:
         if not persona.interaction_state.is_available():
             raise ValueError(f"Persona {persona.name} is not available for interaction")
         
-        # Switch to this persona
-        self.current_persona_id = persona_id
+        # Switch to this persona using session manager
+        if not self.websocket_id:
+            raise ValueError("WebSocket connection ID not set")
         
-        # Get or create conversation for this persona
-        self.current_conversation_id = self._get_or_create_conversation(persona_id)
-        
-        # Cleanup expired sessions
-        self._cleanup_expired_sessions()
+        conversation_id = self.session.set_current_persona(self.websocket_id, persona_id)
         
         return {
             "persona_id": persona.id,
@@ -311,30 +300,33 @@ class MCPHandlers:
         if not message:
             raise ValueError("message is required")
         
-        if not self.current_persona_id:
+        # Get current persona from session manager
+        current_persona_id = self.session.get_current_persona(self.websocket_id)
+        if not current_persona_id:
             raise ValueError("No persona selected. Use persona.switch first")
         
         # Load current persona
-        current_persona = await self.db.load_persona(self.current_persona_id)
+        current_persona = await self.db.load_persona(current_persona_id)
         if not current_persona:
             raise ValueError("Current persona not found")
         
-        # Get conversation context
-        conversation_context = self._get_conversation_context(self.current_persona_id)
+        # Get conversation context from session manager
+        conversation_context = self.session.get_conversation_context(current_persona_id)
         
         # Build enhanced prompt with conversation history
         if conversation_context:
-            enhanced_prompt = f"{conversation_context}\n\nUser: {message}"
+            enhanced_prompt = f"Context: {conversation_context}\n\nUser: {message}"
         else:
             enhanced_prompt = f"User: {message}"
         
-        # Create conversation context for this interaction
-        conversation_data = self.conversations.get(self.current_persona_id, {})
-        turn_count = conversation_data.get("turn_count", 0) + 1
+        # Get conversation session and increment turn count
+        conversation_session = self.session.get_conversation_session(current_persona_id)
+        turn_count = conversation_session.turn_count + 1 if conversation_session else 1
+        conversation_id = self.session.get_current_conversation_id(self.websocket_id) or "mcp_session"
         
         context = ConversationContext(
-            id=self.current_conversation_id or "mcp_session",
-            participants=[self.current_persona_id],
+            id=conversation_id,
+            participants=[current_persona_id],
             topic="general",
             context_type="casual",
             turn_count=turn_count,

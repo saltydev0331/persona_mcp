@@ -16,6 +16,7 @@ from ..conversation import ConversationEngine
 from ..persistence import SQLiteManager, VectorMemoryManager
 from ..llm import LLMManager
 from ..utils import fast_json as json
+from ..logging import get_logger
 
 
 class StreamingEventTypes:
@@ -35,15 +36,15 @@ class StreamingMCPHandlers:
         conversation_engine: ConversationEngine,
         db_manager: SQLiteManager,
         memory_manager: VectorMemoryManager,
-        llm_manager: LLMManager
+        llm_manager: LLMManager,
+        session_manager
     ):
         self.conversation = conversation_engine
         self.db = db_manager
         self.memory = memory_manager
         self.llm = llm_manager
-        
-        # Active streaming sessions
-        self.active_streams: Dict[str, Dict[str, Any]] = {}
+        self.session = session_manager
+        self.logger = get_logger(__name__)
         
         # Streaming method registry
         self.streaming_handlers = {
@@ -132,11 +133,12 @@ class StreamingMCPHandlers:
         if not message:
             raise ValueError("message is required")
         
-        # Get current persona from regular handlers (shared state)
-        current_persona_id = None
-        if hasattr(self, '_regular_handlers') and hasattr(self._regular_handlers, 'current_persona_id'):
-            current_persona_id = self._regular_handlers.current_persona_id
-            
+        # Get current persona from session manager (requires websocket_id)
+        websocket_id = params.get("websocket_id")
+        if not websocket_id:
+            raise ValueError("websocket_id is required for streaming")
+        
+        current_persona_id = self.session.get_current_persona(websocket_id)
         if not current_persona_id:
             raise ValueError("No persona selected. Use persona.switch first")
         
@@ -148,14 +150,8 @@ class StreamingMCPHandlers:
         # Generate stream ID
         stream_id = str(uuid.uuid4())
         
-        # Track streaming session
-        self.active_streams[stream_id] = {
-            "request_id": request_id,
-            "persona_id": current_persona_id,
-            "message": message,
-            "start_time": time.time(),
-            "cancelled": False
-        }
+        # Track streaming session in session manager
+        stream_id = self.session.create_streaming_session(request_id, current_persona_id, message)
         
         try:
             # Send stream start event
@@ -171,15 +167,11 @@ class StreamingMCPHandlers:
             )
             await websocket_sender(json.dumps(start_response))
             
-            # Get conversation context using regular handlers pattern
-            conversation_data = {}
-            current_conversation_id = "stream_session"
+            # Get conversation context from session manager
+            conversation_session = self.session.get_conversation_session(current_persona_id)
+            current_conversation_id = self.session.get_current_conversation_id(websocket_id) or "stream_session"
             
-            if hasattr(self, '_regular_handlers'):
-                conversation_data = self._regular_handlers.conversations.get(current_persona_id, {})
-                current_conversation_id = self._regular_handlers.current_conversation_id or "stream_session"
-            
-            turn_count = conversation_data.get("turn_count", 0) + 1
+            turn_count = conversation_session.turn_count + 1 if conversation_session else 1
             
             context = ConversationContext(
                 id=current_conversation_id,
@@ -205,7 +197,8 @@ class StreamingMCPHandlers:
                 constraints={"max_tokens": token_budget}
             ):
                 # Check if stream was cancelled
-                if self.active_streams.get(stream_id, {}).get("cancelled"):
+                stream_session = self.session.get_streaming_session(stream_id)
+                if not stream_session or stream_session.cancelled:
                     break
                 
                 chunk_count += 1
@@ -228,8 +221,9 @@ class StreamingMCPHandlers:
                 await asyncio.sleep(0.01)
             
             # Send completion event if not cancelled
-            if not self.active_streams.get(stream_id, {}).get("cancelled"):
-                processing_time = time.time() - self.active_streams[stream_id]["start_time"]
+            stream_session = self.session.get_streaming_session(stream_id)
+            if stream_session and not stream_session.cancelled:
+                processing_time = stream_session.duration
                 
                 complete_response = self.create_streaming_response(
                     request_id,
@@ -260,7 +254,7 @@ class StreamingMCPHandlers:
                 await websocket_sender(json.dumps(cancelled_response))
         
         except Exception as e:
-            logging.error(f"Streaming chat error: {e}")
+            self.logger.error(f"Streaming chat error: {e}")
             import traceback
             traceback.print_exc()
             
@@ -279,8 +273,7 @@ class StreamingMCPHandlers:
         
         finally:
             # Clean up streaming session
-            if stream_id in self.active_streams:
-                del self.active_streams[stream_id]
+            self.session.cleanup_streaming_session(stream_id)
     
     async def _store_streaming_conversation(
         self,
@@ -314,30 +307,15 @@ class StreamingMCPHandlers:
                     }
                 )
             
-            logging.debug(f"Stored streaming conversation for {persona.name}")
+            self.logger.debug(f"Stored streaming conversation for {persona.name}")
             
         except Exception as e:
-            logging.error(f"Error storing streaming conversation: {e}")
+            self.logger.error(f"Error storing streaming conversation: {e}")
     
     def cancel_stream(self, stream_id: str):
         """Cancel an active streaming session"""
-        
-        if stream_id in self.active_streams:
-            self.active_streams[stream_id]["cancelled"] = True
-            logging.info(f"Cancelled streaming session: {stream_id}")
-            return True
-        
-        return False
+        return self.session.cancel_streaming_session(stream_id)
     
     def get_active_streams(self) -> Dict[str, Dict[str, Any]]:
         """Get information about active streaming sessions"""
-        
-        return {
-            stream_id: {
-                "persona_id": session["persona_id"],
-                "message": session["message"][:50] + "..." if len(session["message"]) > 50 else session["message"],
-                "duration": time.time() - session["start_time"],
-                "cancelled": session["cancelled"]
-            }
-            for stream_id, session in self.active_streams.items()
-        }
+        return self.session.get_active_streaming_sessions()
