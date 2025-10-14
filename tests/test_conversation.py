@@ -3,6 +3,7 @@ Integration tests for conversation engine
 """
 
 import pytest
+import pytest_asyncio
 import asyncio
 import tempfile
 import shutil
@@ -14,7 +15,7 @@ from persona_mcp.llm import LLMManager
 from persona_mcp.conversation import ConversationEngine
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def temp_db():
     """Create temporary database for testing"""
     temp_dir = tempfile.mkdtemp()
@@ -29,9 +30,10 @@ async def temp_db():
     shutil.rmtree(temp_dir)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def temp_memory():
     """Create temporary vector memory for testing"""
+    import time
     temp_dir = tempfile.mkdtemp()
     
     memory_manager = VectorMemoryManager(str(temp_dir))
@@ -39,7 +41,14 @@ async def temp_memory():
     yield memory_manager
     
     await memory_manager.close()
-    shutil.rmtree(temp_dir)
+    # Give ChromaDB time to release file handles on Windows
+    time.sleep(0.5)
+    try:
+        shutil.rmtree(temp_dir)
+    except PermissionError:
+        # ChromaDB on Windows sometimes holds file locks
+        # This is a known issue, ignore cleanup errors in tests
+        pass
 
 
 @pytest.fixture

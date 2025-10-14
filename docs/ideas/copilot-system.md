@@ -8,7 +8,7 @@ You've essentially already built the complete three-pillar architecture required
 | **Contextual Code RAG**  | **ChromaDB** with **3-Tier Memory Management**  | Serves as the vector database for your codebase (the ultimate knowledge source). Your existing `memory.search` is the Retrieval Augmented Generation (RAG) system. |
 | **Real-Time Delivery**   | **WebSocket Streaming** (`persona.chat_stream`) | Provides the necessary sub-100ms real-time suggestions and chunk delivery that defines the "Copilot" experience.                                                   |
 
-### The Final Bridge
+### The Final Bridge()
 
 The primary remaining task is not development, but **data ingestion**:
 

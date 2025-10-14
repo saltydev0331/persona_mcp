@@ -9,7 +9,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from client.mcp_client import MCPClient
+from client.mcp_client import MCPTestClient
 
 
 async def test_pruning_api():
@@ -18,7 +18,7 @@ async def test_pruning_api():
     print("=" * 40)
     
     # Connect to server
-    client = MCPClient("ws://localhost:8000/mcp")
+    client = MCPTestClient("ws://localhost:8000/mcp")
     
     try:
         await client.connect()

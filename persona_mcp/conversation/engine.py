@@ -5,7 +5,7 @@ Conversation engine for managing persona interactions
 import time
 import random
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from ..config import get_config
 from ..models import (
@@ -538,7 +538,7 @@ class ConversationEngine:
             
             if elapsed_seconds > 0:
                 persona.interaction_state.regenerate_energy(elapsed_seconds)
-                persona.interaction_state.last_updated = datetime.utcnow()
+                persona.interaction_state.last_updated = datetime.now(timezone.utc)
                 await self.db.save_persona(persona)
     
     async def get_conversation_status(self, conversation_id: str) -> Optional[Dict]:

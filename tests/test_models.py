@@ -151,11 +151,14 @@ class TestRelationship:
             persona2_id="bob",
             affinity=0.8,
             trust=0.6,
-            respect=0.4
+            respect=0.4,
+            intimacy=0.5
         )
         
         score = rel.get_compatibility_score()
-        expected = (0.8 * 0.4) + (0.6 * 0.3) + (0.4 * 0.3)
+        # Current formula: (abs(affinity) * 0.3 + abs(trust) * 0.25 + abs(respect) * 0.25 + intimacy * 0.2) * bonus
+        # With positive affinity and trust, bonus = 1.2
+        expected = (abs(0.8) * 0.3 + abs(0.6) * 0.25 + abs(0.4) * 0.25 + 0.5 * 0.2) * 1.2
         assert abs(score - expected) < 0.01
     
     def test_update_from_interaction(self):
@@ -168,7 +171,8 @@ class TestRelationship:
         initial_affinity = rel.affinity
         initial_count = rel.interaction_count
         
-        rel.update_from_interaction(positive=True, significance=0.1)
+        # New API: update_from_interaction(interaction_quality, duration_minutes, context)
+        rel.update_from_interaction(interaction_quality=0.7, duration_minutes=15.0, context="collaboration")
         
         assert rel.affinity > initial_affinity
         assert rel.interaction_count == initial_count + 1

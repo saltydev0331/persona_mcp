@@ -62,7 +62,7 @@ class TestMemoryImportanceScoring:
         return Relationship(
             persona1_id=test_personas["wizard"].id,
             persona2_id=test_personas["scholar"].id,
-            relationship_type="friendship",
+            relationship_type="friend",
             strength=0.8,
             trust_level=0.9,
             interaction_count=25

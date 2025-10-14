@@ -76,12 +76,13 @@ class RelationshipManager:
                 # Create new relationship
                 query = """
                     INSERT INTO relationships 
-                    (persona1_id, persona2_id, affinity, trust, respect, intimacy,
+                    (id, persona1_id, persona2_id, affinity, trust, respect, intimacy,
                      relationship_type, interaction_count, total_interaction_time, 
                      first_meeting, last_interaction, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = [
+                    relationship.id,  # Include the relationship ID
                     relationship.persona1_id, relationship.persona2_id,
                     relationship.affinity, relationship.trust, relationship.respect,
                     relationship.intimacy, relationship.relationship_type.value,
@@ -171,8 +172,8 @@ class RelationshipManager:
     async def _save_emotional_state(self, state: EmotionalState) -> bool:
         """Internal method to save emotional state"""
         try:
-            # Check if exists
-            query = "SELECT id FROM emotional_states WHERE persona_id = ?"
+            # Check if exists (using persona_id as primary key)
+            query = "SELECT persona_id FROM emotional_states WHERE persona_id = ?"
             existing = await self.db_session.fetchone(query, [state.persona_id])
             
             if existing:
@@ -219,6 +220,14 @@ class RelationshipManager:
         try:
             # Clamp interaction quality to valid range
             interaction_quality = max(-1.0, min(1.0, interaction_quality))
+            
+            # Validate that both personas exist
+            persona1_exists = await self._persona_exists(persona1_id)
+            persona2_exists = await self._persona_exists(persona2_id)
+            
+            if not persona1_exists or not persona2_exists:
+                self.logger.warning(f"Attempted to process interaction between nonexistent personas: {persona1_id}, {persona2_id}")
+                return False
             
             # Get or create relationship
             relationship = await self.get_relationship(persona1_id, persona2_id)
@@ -423,20 +432,23 @@ class RelationshipManager:
     def _row_to_relationship(self, row) -> Optional[Relationship]:
         """Convert database row to Relationship model"""
         try:
-            # Adjust column indices - mock database doesn't include id column (column 0)
-            # So all columns are shifted left by 1
+            # Actual database column order:
+            # 0: persona1_id, 1: persona2_id, 2: affinity, 3: trust, 4: respect, 
+            # 5: interaction_count, 6: last_interaction, 7: shared_experiences, 8: relationship_type,
+            # 9: intimacy, 10: total_interaction_time, 11: first_meeting, 12: created_at, 13: updated_at, 14: id
             return Relationship(
-                persona1_id=row[0],  # persona1_id (was column 1, now index 0)
-                persona2_id=row[1],  # persona2_id (was column 2, now index 1)
-                affinity=row[2],     # affinity (was column 3, now index 2)
-                trust=row[3],        # trust (was column 4, now index 3)
-                respect=row[4],      # respect (was column 5, now index 4)
-                intimacy=row[5],     # intimacy (was column 6, now index 5)
-                relationship_type=RelationshipType(row[6]),  # relationship_type (was column 7, now index 6)
-                interaction_count=row[7],    # interaction_count (was column 8, now index 7)
-                total_interaction_time=row[8],  # total_interaction_time (was column 9, now index 8)
-                first_meeting=datetime.fromisoformat(row[9]) if row[9] else datetime.now(),    # first_meeting (was column 10, now index 9)
-                last_interaction=datetime.fromisoformat(row[10]) if row[10] else None  # last_interaction (was column 11, now index 10)
+                id=row[14],          # id from database (column 14)
+                persona1_id=row[0],  # persona1_id
+                persona2_id=row[1],  # persona2_id  
+                affinity=row[2],     # affinity
+                trust=row[3],        # trust
+                respect=row[4],      # respect
+                intimacy=row[9],     # intimacy (column 9)
+                relationship_type=RelationshipType(row[8]),  # relationship_type (column 8)
+                interaction_count=row[5],    # interaction_count (column 5)
+                total_interaction_time=row[10] if row[10] is not None else 0.0,  # total_interaction_time (column 10)
+                first_meeting=datetime.fromisoformat(row[11]) if row[11] else datetime.now(),    # first_meeting (column 11)
+                last_interaction=datetime.fromisoformat(row[6]) if row[6] else None  # last_interaction (column 6)
             )
         except Exception as e:
             self.logger.error(f"Error converting row to relationship: {e}")
@@ -446,14 +458,24 @@ class RelationshipManager:
         """Convert database row to EmotionalState model"""
         try:
             return EmotionalState(
-                persona_id=row[1],  # Assuming column order
-                mood=row[2],
-                energy_level=row[3],
-                stress_level=row[4],
-                curiosity=row[5],
-                social_battery=row[6],
-                last_updated=datetime.fromisoformat(row[7]) if row[7] else datetime.now()
+                persona_id=row[0],  # persona_id is column 0
+                mood=row[1],        # mood is column 1
+                energy_level=row[2], # energy_level is column 2
+                stress_level=row[3], # stress_level is column 3
+                curiosity=row[4],    # curiosity is column 4
+                social_battery=row[5], # social_battery is column 5
+                last_updated=datetime.fromisoformat(row[6]) if row[6] else datetime.now()  # last_updated is column 6
             )
         except Exception as e:
             self.logger.error(f"Error converting row to emotional state: {e}")
             return None
+    
+    async def _persona_exists(self, persona_id: str) -> bool:
+        """Check if a persona exists in the database"""
+        try:
+            query = "SELECT COUNT(*) FROM personas WHERE id = ?"
+            row = await self.db_session.fetchone(query, (persona_id,))
+            return row[0] > 0 if row else False
+        except Exception as e:
+            self.logger.error(f"Error checking persona existence: {e}")
+            return False

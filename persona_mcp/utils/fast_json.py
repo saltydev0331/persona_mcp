@@ -99,14 +99,15 @@ class JSONBenchmark:
             Performance comparison results
         """
         import time
+        import json as _std_json
         
         results = {}
         
         # Test standard json
         start_time = time.time()
         for _ in range(iterations):
-            json_str = json.dumps(data)
-            json.loads(json_str)
+            json_str = _std_json.dumps(data)
+            _std_json.loads(json_str)
         std_time = time.time() - start_time
         results['standard_json'] = std_time
         
@@ -118,8 +119,14 @@ class JSONBenchmark:
                 orjson.loads(json_bytes)
             orjson_time = time.time() - start_time
             results['orjson'] = orjson_time
-            results['speedup'] = std_time / orjson_time
-            results['improvement_percent'] = ((std_time - orjson_time) / std_time) * 100
+            
+            # Avoid division by zero for very fast operations
+            if orjson_time > 0:
+                results['speedup'] = std_time / orjson_time
+                results['improvement_percent'] = ((std_time - orjson_time) / std_time) * 100
+            else:
+                results['speedup'] = float('inf')
+                results['improvement_percent'] = 100.0
         
         return results
 
@@ -140,7 +147,8 @@ if HAS_ORJSON:
     try:
         import json as _std_json
         JSONDecodeError = _std_json.JSONDecodeError
-    except:
+    except (ImportError, AttributeError):
+        # Fallback if standard json doesn't have JSONDecodeError
         pass
 else:
     JSONDecodeError = json.JSONDecodeError

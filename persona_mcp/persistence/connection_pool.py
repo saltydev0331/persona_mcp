@@ -128,8 +128,8 @@ class SQLiteConnectionPool:
                     
                     try:
                         await conn.close()
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Error closing connection during cleanup: {e}")
     
     async def execute_query(self, query: str, params: tuple = ()) -> Any:
         """Execute a query using a pooled connection"""
@@ -176,15 +176,15 @@ class SQLiteConnectionPool:
                 try:
                     conn = await self._available_connections.get()
                     await conn.close()
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Error closing available connection: {e}")
             
             # Close any remaining connections
             for conn in list(self._all_connections):
                 try:
                     await conn.close()
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Error closing checked-out connection: {e}")
             
             self._all_connections.clear()
             self._checked_out.clear()

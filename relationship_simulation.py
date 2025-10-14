@@ -201,15 +201,15 @@ class RelationshipSimulation:
     async def run_simulation(self):
         """Run the comprehensive relationship simulation"""
         
-        print("🎭 Starting Comprehensive Relationship Dynamics Simulation")
+        print("=== Starting Comprehensive Relationship Dynamics Simulation ===")
         print("=" * 60)
         
         # 1. Create personas and analyze initial compatibility
-        print("\n📋 PHASE 1: Persona Creation & Initial Compatibility Analysis")
+        print("\n[PHASE 1] Persona Creation & Initial Compatibility Analysis")
         personas = self.create_personas()
         
         for persona in personas:
-            print(f"\n👤 {persona.name} ({persona.id})")
+            print(f"\n[PERSONA] {persona.name} ({persona.id})")
             print(f"   {persona.description}")
             traits = persona.personality_traits.get('traits', [])
             interests = persona.personality_traits.get('interests', [])
@@ -217,7 +217,7 @@ class RelationshipSimulation:
             print(f"   Interests: {', '.join(interests)}")
             
         # Calculate initial compatibility matrix
-        print(f"\n🧮 Initial Compatibility Matrix:")
+        print(f"\n[COMPATIBILITY MATRIX] Initial Analysis:")
         compatibility_matrix = {}
         
         for i, p1 in enumerate(personas):
@@ -225,7 +225,7 @@ class RelationshipSimulation:
                 if i < j:  # Avoid duplicate pairs
                     compat = self.compatibility_engine.calculate_overall_compatibility(p1, p2, None)
                     compatibility_matrix[(p1.id, p2.id)] = compat['overall']
-                    print(f"   {p1.name} ↔ {p2.name}: {compat['overall']:.2f} "
+                    print(f"   {p1.name} <-> {p2.name}: {compat['overall']:.2f} "
                           f"(personality: {compat['personality']:.2f}, "
                           f"interests: {compat['interests']:.2f}, "
                           f"social: {compat['social']:.2f})")
@@ -344,13 +344,10 @@ class MockDatabaseSession:
                     r = float(rel[4])
                     i = float(rel[5])
                     vals.append((a + t + r + i) / 4.0)
-                except Exception as e:
-                    print(f"DEBUG: Error parsing relationship values: {e}")
-                    print(f"DEBUG: Relationship data: {rel}")
+                except Exception:
+                    # Skip relationships with invalid data
                     continue
             avg = sum(vals) / len(vals) if vals else 0.0
-            print(f"DEBUG: Calculated average compatibility from {len(vals)} relationships: {avg}")
-            print(f"DEBUG: Individual scores: {vals}")
             return [avg]
         if "select count(*) as count from interaction_history" in q:
             return [len(self.interaction_history)]

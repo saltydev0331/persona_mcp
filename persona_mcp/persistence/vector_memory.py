@@ -386,12 +386,11 @@ class VectorMemoryManager:
                     all_results.append(result)
             
             # Search across other personas for shared/public memories
-            print(f"DEBUG: Available collections: {list(self.collections.keys())}")
-            print(f"DEBUG: Requesting persona: {requesting_persona_id}")
+            self.logger.debug(f"Cross-persona search: {len(self.collections)} collections, requesting persona: {requesting_persona_id}")
             for persona_id in self.collections.keys():
                 if persona_id == requesting_persona_id:
                     continue
-                print(f"DEBUG: Searching collection {persona_id}")
+                self.logger.debug(f"Searching collection {persona_id}")
                     
                 try:
                     collection = self.collections[persona_id]
@@ -409,11 +408,10 @@ class VectorMemoryManager:
                                 where={"visibility": "shared"},  # Simplified to single condition
                                 include=['metadatas', 'documents', 'distances']
                             )
-                            print(f"DEBUG: Shared query for {persona_id} found {len(shared_results.get('documents', [[]])[0]) if shared_results else 0} results")
+                            self.logger.debug(f"Shared query for {persona_id} found {len(shared_results.get('documents', [[]])[0]) if shared_results else 0} results")
                             if shared_results and shared_results.get('documents') and shared_results['documents'][0]:
                                 all_persona_results.append(shared_results)
                         except Exception as e:
-                            print(f"DEBUG: Shared query failed for {persona_id}: {e}")
                             self.logger.debug(f"Shared query failed for {persona_id}: {e}")
                     
                     # Query for public memories
@@ -426,11 +424,10 @@ class VectorMemoryManager:
                                 where={"visibility": "public"},  # Simplified to single condition
                                 include=['metadatas', 'documents', 'distances']
                             )
-                            print(f"DEBUG: Public query for {persona_id} found {len(public_results.get('documents', [[]])[0]) if public_results else 0} results")
+                            self.logger.debug(f"Public query for {persona_id} found {len(public_results.get('documents', [[]])[0]) if public_results else 0} results")
                             if public_results and public_results.get('documents') and public_results['documents'][0]:
                                 all_persona_results.append(public_results)
                         except Exception as e:
-                            print(f"DEBUG: Public query failed for {persona_id}: {e}")
                             self.logger.debug(f"Public query failed for {persona_id}: {e}")
                     
                     # Process all results from this persona

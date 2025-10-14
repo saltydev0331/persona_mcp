@@ -92,7 +92,7 @@ class StreamingMCPHandlers:
         request_data: Dict[str, Any],
         websocket_sender: Callable[[str], None]
     ) -> bool:
-        """Handle streaming MCP requests"""
+        """Handle streaming MCP requests with comprehensive error recovery"""
         
         method = request_data.get("method")
         request_id = request_data.get("id", str(uuid.uuid4()))
@@ -104,27 +104,62 @@ class StreamingMCPHandlers:
             # Get handler
             handler = self.streaming_handlers[method]
             
-            # Execute streaming handler
-            await handler(
-                request_data.get("params", {}),
-                request_id,
-                websocket_sender
+            # Execute streaming handler with timeout protection
+            timeout_seconds = 300  # 5 minute timeout for streaming
+            await asyncio.wait_for(
+                handler(
+                    request_data.get("params", {}),
+                    request_id,
+                    websocket_sender
+                ),
+                timeout=timeout_seconds
             )
             
             return True
             
+        except asyncio.TimeoutError:
+            # Handle streaming timeout
+            self.logger.error(f"Streaming request timed out after {timeout_seconds}s for method {method}")
+            timeout_response = self.create_streaming_response(
+                request_id,
+                StreamingEventTypes.ERROR,
+                error={
+                    "code": -32603,
+                    "message": f"Streaming request timed out after {timeout_seconds} seconds",
+                    "data": {"method": method, "timeout": timeout_seconds}
+                }
+            )
+            try:
+                await websocket_sender(json.dumps(timeout_response))
+            except Exception:
+                # Connection may be broken
+                self.logger.warning("Failed to send timeout response - connection may be closed")
+            return True
+            
+        except ConnectionError as e:
+            # Handle WebSocket connection issues
+            self.logger.error(f"WebSocket connection error during streaming {method}: {e}")
+            # Don't try to send response - connection is broken
+            return False
+            
         except Exception as e:
-            # Send error event
+            # Handle all other errors with detailed logging
+            self.logger.error(f"Streaming error in {method}: {e}", exc_info=True)
             error_response = self.create_streaming_response(
                 request_id,
                 StreamingEventTypes.ERROR,
                 error={
                     "code": -32603,
                     "message": "Streaming error",
-                    "data": str(e)
+                    "data": {"error": str(e), "method": method}
                 }
             )
-            await websocket_sender(json.dumps(error_response))
+            try:
+                await websocket_sender(json.dumps(error_response))
+            except Exception as send_error:
+                # If we can't send error response, connection might be broken
+                self.logger.warning(f"Failed to send error response: {send_error}")
+                return False
             return True
     
     async def handle_persona_chat_stream(
@@ -324,9 +359,44 @@ class StreamingMCPHandlers:
         except Exception as e:
             self.logger.error(f"Error storing streaming conversation: {e}")
     
-    def cancel_stream(self, stream_id: str):
-        """Cancel an active streaming session"""
-        return self.session.cancel_streaming_session(stream_id)
+    def cancel_stream(self, stream_id: str, reason: str = "user_request") -> bool:
+        """Cancel an active streaming session with proper cleanup"""
+        try:
+            stream_session = self.session.get_streaming_session(stream_id)
+            if not stream_session:
+                self.logger.warning(f"Attempted to cancel non-existent stream: {stream_id}")
+                return False
+            
+            # Cancel the stream in session manager
+            success = self.session.cancel_streaming_session(stream_id)
+            
+            if success:
+                self.logger.info(f"Cancelled streaming session {stream_id[:8]}... (reason: {reason})")
+            else:
+                self.logger.warning(f"Failed to cancel streaming session {stream_id[:8]}...")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Error cancelling stream {stream_id[:8]}...: {e}")
+            return False
+    
+    def cancel_all_streams(self, reason: str = "server_shutdown") -> int:
+        """Cancel all active streaming sessions"""
+        try:
+            active_streams = self.get_active_streams()
+            cancelled_count = 0
+            
+            for stream_id in list(active_streams.keys()):
+                if self.cancel_stream(stream_id, reason):
+                    cancelled_count += 1
+            
+            self.logger.info(f"Cancelled {cancelled_count} streaming sessions (reason: {reason})")
+            return cancelled_count
+            
+        except Exception as e:
+            self.logger.error(f"Error cancelling all streams: {e}")
+            return 0
     
     def get_active_streams(self) -> Dict[str, Dict[str, Any]]:
         """Get information about active streaming sessions"""

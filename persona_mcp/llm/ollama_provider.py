@@ -58,7 +58,8 @@ class OllamaProvider(LLMProvider):
         try:
             response = await self.client.get(f"{self.base_url}/api/tags")
             return response.status_code == 200
-        except:
+        except Exception as e:
+            self.logger.debug(f"Ollama health check failed: {e}")
             return False
     
     async def generate_response(
@@ -290,8 +291,8 @@ class OllamaProvider(LLMProvider):
             if response.status_code == 200:
                 data = response.json()
                 return [model["name"] for model in data.get("models", [])]
-        except:
-            pass
+        except Exception as e:
+            self.logger.warning(f"Failed to get available models: {e}")
         return []
     
     async def close(self):
