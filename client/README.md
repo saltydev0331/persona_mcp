@@ -46,8 +46,10 @@ Once in interactive mode, you can use these commands:
 - `switch aria` - Switch to Aria persona
 - `switch kira` - Switch to Kira persona
 - `chat Hello there!` - Chat with current persona
-- `memory introduction` - Search conversation memory
-- `relationship` - Check relationship status
+- `memory introduction` - Search semantic memory
+- `memory-stats` - Show memory system statistics
+- `prune` - Prune low-importance memories (safe)
+- `prune --force` - Force memory pruning
 - `status` - Get current persona status
 - `raw persona.list` - Send raw MCP request
 - `help` - Show all commands
@@ -79,6 +81,24 @@ mcp> chat Hello Aria! How are you today?
       "response": "Hello! I'm doing wonderfully today...",
       "persona_state": {...}
     }
+
+mcp> memory introduction
+[18:20:30] → Sending: memory.search
+    Params: {"query": "introduction", "n_results": 5, "min_importance": 0.0}
+[18:20:30] ✓ Success
+    Result: {
+      "memories": [...],
+      "total_results": 3
+    }
+
+mcp> memory-stats
+[18:20:35] → Sending: memory.stats
+[18:20:35] ✓ Success
+    Result: {
+      "total_memories": 150,
+      "avg_importance": 0.65,
+      "storage_size_mb": 2.3
+    }
 ```
 
 ## Configuration
@@ -89,11 +109,13 @@ mcp> chat Hello Aria! How are you today?
 ## Features
 
 ✅ **Interactive CLI** - Easy command-line interface  
-✅ **Automated Tests** - Complete test suite  
-✅ **All MCP Methods** - Supports every persona method  
+✅ **Automated Tests** - Complete 10-test suite with modern API methods  
+✅ **All MCP Methods** - Supports 25+ MCP endpoints including memory management  
+✅ **Modern Memory API** - Uses updated `memory.search`, `memory.stats`, `memory.prune`  
 ✅ **Real-time Logs** - Timestamped request/response logs  
 ✅ **Error Handling** - Graceful error reporting  
 ✅ **JSON Pretty Print** - Readable response formatting  
-✅ **Raw Mode** - Send custom JSON-RPC requests
+✅ **Raw Mode** - Send custom JSON-RPC requests  
+✅ **Memory Management** - Test semantic search, pruning, and statistics
 
-This client is perfect for developing and testing your MCP server integrations!
+This client is perfect for developing and testing your MCP server integrations with full support for the enhanced memory system!

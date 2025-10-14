@@ -95,19 +95,21 @@ class MCPTestClient:
             "token_budget": token_budget
         })
     
-    async def query_memory(self, query: str, limit: int = 5):
-        """Query conversation memory"""
-        return await self.send_request("persona.memory", {
+    async def search_memory(self, query: str, n_results: int = 5, min_importance: float = 0.0):
+        """Search semantic memory using the modern memory.search endpoint"""
+        return await self.send_request("memory.search", {
             "query": query,
-            "limit": limit
+            "n_results": n_results,
+            "min_importance": min_importance
         })
     
-    async def get_relationship(self, target_persona: str = None):
-        """Get relationship status with another persona"""
-        params = {}
-        if target_persona:
-            params["target_persona"] = target_persona
-        return await self.send_request("persona.relationship", params)
+    async def get_memory_stats(self):
+        """Get memory system statistics"""
+        return await self.send_request("memory.stats")
+    
+    async def prune_memory(self, force: bool = False):
+        """Prune low-importance memories"""
+        return await self.send_request("memory.prune", {"force": force})
     
     async def get_status(self):
         """Get current persona status"""
@@ -129,8 +131,9 @@ class InteractiveClient:
         print("  list                          - List all personas")
         print("  switch <persona_id>           - Switch to persona (aria/kira)")
         print("  chat <message>                - Chat with current persona")
-        print("  memory <query>                - Search conversation memory")
-        print("  relationship [target]         - Check relationship status")
+        print("  memory <query>                - Search semantic memory")
+        print("  memory-stats                  - Show memory statistics")
+        print("  prune [--force]               - Prune low-importance memories")
         print("  status                        - Get current persona status")
         print("  raw <method> [params_json]    - Send raw MCP request")
         print("  help                          - Show this help")
@@ -172,12 +175,14 @@ class InteractiveClient:
                 elif cmd == 'memory':
                     if args:
                         query = ' '.join(args)
-                        await self.client.query_memory(query)
+                        await self.client.search_memory(query)
                     else:
                         print("Usage: memory <query>")
-                elif cmd == 'relationship':
-                    target = args[0] if args else None
-                    await self.client.get_relationship(target)
+                elif cmd == 'memory-stats':
+                    await self.client.get_memory_stats()
+                elif cmd == 'prune':
+                    force = '--force' in args
+                    await self.client.prune_memory(force)
                 elif cmd == 'status':
                     await self.client.get_status()
                 elif cmd == 'raw':
@@ -221,13 +226,13 @@ async def run_auto_test(client: MCPTestClient):
         print("\n🧪 Test 3: Chat with Aria")
         await client.chat("Hello Aria! Can you introduce yourself?")
         
-        # Test 4: Query memory
-        print("\n🧪 Test 4: Query Conversation Memory")
-        await client.query_memory("introduction")
+        # Test 4: Search semantic memory
+        print("\n🧪 Test 4: Search Semantic Memory")
+        await client.search_memory("introduction")
         
-        # Test 5: Check relationship status
-        print("\n🧪 Test 5: Check Relationship Status")
-        await client.get_relationship()
+        # Test 5: Get memory statistics
+        print("\n🧪 Test 5: Get Memory Statistics")
+        await client.get_memory_stats()
         
         # Test 6: Switch to Kira
         print("\n🧪 Test 6: Switch to Kira Persona")
@@ -241,8 +246,16 @@ async def run_auto_test(client: MCPTestClient):
         print("\n🧪 Test 8: Get Current Status")
         await client.get_status()
         
+        # Test 9: Test memory pruning (with force=False for safety)
+        print("\n🧪 Test 9: Test Memory Pruning")
+        await client.prune_memory(force=False)
+        
+        # Test 10: Test system status
+        print("\n🧪 Test 10: System Status")
+        await client.send_request("system.status")
+        
         print("\n" + "="*60)
-        print("✓ ALL TESTS COMPLETED")
+        print("✓ ALL TESTS COMPLETED - 10 TESTS RUN")
         print("="*60)
         
     except Exception as e:
