@@ -98,6 +98,17 @@ class MCPHandlers:
             "memory.search_cross_persona": self.handle_memory_search_cross_persona,
             "memory.shared_stats": self.handle_memory_shared_stats,
             
+            # Relationship management endpoints
+            "relationship.get": self.handle_relationship_get,
+            "relationship.list": self.handle_relationship_list,
+            "relationship.compatibility": self.handle_relationship_compatibility,
+            "relationship.stats": self.handle_relationship_stats,
+            "relationship.update": self.handle_relationship_update,
+            
+            # Emotional state endpoints
+            "emotional.get_state": self.handle_emotional_get_state,
+            "emotional.update_state": self.handle_emotional_update_state,
+            
             # State management
             "state.save": self.handle_state_save,
             "state.load": self.handle_state_load,
@@ -1009,3 +1020,292 @@ class MCPHandlers:
             "shared_memory_statistics": stats,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+
+    # === Relationship Management Handlers ===
+
+    async def handle_relationship_get(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get relationship between two personas"""
+        
+        persona1_id = params.get("persona1_id")
+        persona2_id = params.get("persona2_id")
+        
+        if not persona1_id or not persona2_id:
+            raise ValueError("Both persona1_id and persona2_id are required")
+        
+        # Import here to avoid circular imports
+        from ..relationships.manager import RelationshipManager
+        from ..database import get_db_session
+        
+        async with get_db_session() as session:
+            relationship_manager = RelationshipManager(session)
+            relationship = await relationship_manager.get_relationship(persona1_id, persona2_id)
+            
+            if relationship:
+                return {
+                    "relationship": {
+                        "persona1_id": relationship.persona1_id,
+                        "persona2_id": relationship.persona2_id,
+                        "affinity": relationship.affinity,
+                        "trust": relationship.trust,
+                        "respect": relationship.respect,
+                        "intimacy": relationship.intimacy,
+                        "relationship_type": relationship.relationship_type.value,
+                        "interaction_count": relationship.interaction_count,
+                        "total_interaction_time": relationship.total_interaction_time,
+                        "compatibility_score": relationship.get_compatibility_score(),
+                        "relationship_strength": relationship.get_relationship_strength(),
+                        "last_interaction": relationship.last_interaction.isoformat() if relationship.last_interaction else None,
+                        "first_meeting": relationship.first_meeting.isoformat()
+                    },
+                    "exists": True
+                }
+            else:
+                return {
+                    "relationship": None,
+                    "exists": False,
+                    "message": f"No relationship found between {persona1_id} and {persona2_id}"
+                }
+
+    async def handle_relationship_list(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """List all relationships for a specific persona"""
+        
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
+        
+        if not persona_id:
+            raise ValueError("persona_id is required")
+        
+        # Import here to avoid circular imports
+        from ..relationships.manager import RelationshipManager
+        from ..database import get_db_session
+        
+        async with get_db_session() as session:
+            relationship_manager = RelationshipManager(session)
+            relationships = await relationship_manager.get_persona_relationships(persona_id)
+            
+            relationship_list = []
+            for rel in relationships:
+                # Determine the other persona in the relationship
+                other_persona_id = rel.persona2_id if rel.persona1_id == persona_id else rel.persona1_id
+                
+                relationship_list.append({
+                    "other_persona_id": other_persona_id,
+                    "affinity": rel.affinity,
+                    "trust": rel.trust,
+                    "respect": rel.respect,
+                    "intimacy": rel.intimacy,
+                    "relationship_type": rel.relationship_type.value,
+                    "interaction_count": rel.interaction_count,
+                    "compatibility_score": rel.get_compatibility_score(),
+                    "relationship_strength": rel.get_relationship_strength(),
+                    "last_interaction": rel.last_interaction.isoformat() if rel.last_interaction else None
+                })
+            
+            return {
+                "persona_id": persona_id,
+                "relationships": relationship_list,
+                "total_relationships": len(relationship_list)
+            }
+
+    async def handle_relationship_compatibility(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate compatibility between two personas"""
+        
+        persona1_id = params.get("persona1_id")
+        persona2_id = params.get("persona2_id")
+        
+        if not persona1_id or not persona2_id:
+            raise ValueError("Both persona1_id and persona2_id are required")
+        
+        # Get personas
+        persona1 = await self.persona_manager.get_persona(persona1_id)
+        persona2 = await self.persona_manager.get_persona(persona2_id)
+        
+        if not persona1 or not persona2:
+            raise ValueError("One or both personas not found")
+        
+        # Import here to avoid circular imports
+        from ..relationships.manager import RelationshipManager
+        from ..relationships.compatibility import CompatibilityEngine
+        from ..database import get_db_session
+        
+        async with get_db_session() as session:
+            relationship_manager = RelationshipManager(session)
+            compatibility_engine = CompatibilityEngine()
+            
+            # Get existing relationship if any
+            relationship = await relationship_manager.get_relationship(persona1_id, persona2_id)
+            
+            # Calculate compatibility analysis
+            compatibility_analysis = compatibility_engine.calculate_overall_compatibility(
+                persona1, persona2, relationship
+            )
+            
+            # Get interaction suggestions
+            suggestions = compatibility_engine.suggest_interaction_approach(
+                persona1, persona2, compatibility_analysis
+            )
+            
+            return {
+                "persona1": {"id": persona1.id, "name": persona1.name},
+                "persona2": {"id": persona2.id, "name": persona2.name},
+                "compatibility_analysis": compatibility_analysis,
+                "interaction_suggestions": suggestions,
+                "existing_relationship": relationship is not None
+            }
+
+    async def handle_relationship_stats(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get overall relationship statistics"""
+        
+        # Import here to avoid circular imports
+        from ..relationships.manager import RelationshipManager
+        from ..database import get_db_session
+        
+        async with get_db_session() as session:
+            relationship_manager = RelationshipManager(session)
+            stats = await relationship_manager.get_relationship_stats()
+            
+            return {
+                "relationship_statistics": stats,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+    async def handle_relationship_update(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Update relationship based on interaction"""
+        
+        persona1_id = params.get("persona1_id")
+        persona2_id = params.get("persona2_id")
+        interaction_quality = params.get("interaction_quality", 0.0)
+        duration_minutes = params.get("duration_minutes", 5.0)
+        context = params.get("context", "conversation")
+        
+        if not persona1_id or not persona2_id:
+            raise ValueError("Both persona1_id and persona2_id are required")
+        
+        if not isinstance(interaction_quality, (int, float)) or not -1.0 <= interaction_quality <= 1.0:
+            raise ValueError("interaction_quality must be a number between -1.0 and 1.0")
+        
+        # Import here to avoid circular imports
+        from ..relationships.manager import RelationshipManager
+        from ..database import get_db_session
+        
+        async with get_db_session() as session:
+            relationship_manager = RelationshipManager(session)
+            success = await relationship_manager.process_interaction(
+                persona1_id, persona2_id, interaction_quality, duration_minutes, context
+            )
+            
+            if success:
+                # Get updated relationship
+                updated_relationship = await relationship_manager.get_relationship(persona1_id, persona2_id)
+                
+                return {
+                    "success": True,
+                    "message": "Relationship updated successfully",
+                    "interaction_processed": {
+                        "quality": interaction_quality,
+                        "duration_minutes": duration_minutes,
+                        "context": context
+                    },
+                    "updated_relationship": {
+                        "affinity": updated_relationship.affinity,
+                        "trust": updated_relationship.trust,
+                        "respect": updated_relationship.respect,
+                        "relationship_type": updated_relationship.relationship_type.value,
+                        "compatibility_score": updated_relationship.get_compatibility_score()
+                    } if updated_relationship else None
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to update relationship",
+                    "error": "Processing failed"
+                }
+
+    # === Emotional State Handlers ===
+
+    async def handle_emotional_get_state(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get emotional state for a persona"""
+        
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
+        
+        if not persona_id:
+            raise ValueError("persona_id is required")
+        
+        # Import here to avoid circular imports
+        from ..relationships.manager import RelationshipManager
+        from ..database import get_db_session
+        
+        async with get_db_session() as session:
+            relationship_manager = RelationshipManager(session)
+            emotional_state = await relationship_manager.get_emotional_state(persona_id)
+            
+            return {
+                "persona_id": persona_id,
+                "emotional_state": {
+                    "mood": emotional_state.mood,
+                    "energy_level": emotional_state.energy_level,
+                    "stress_level": emotional_state.stress_level,
+                    "curiosity": emotional_state.curiosity,
+                    "social_battery": emotional_state.social_battery,
+                    "last_updated": emotional_state.last_updated.isoformat()
+                }
+            }
+
+    async def handle_emotional_update_state(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Update emotional state for a persona"""
+        
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
+        
+        if not persona_id:
+            raise ValueError("persona_id is required")
+        
+        # Import here to avoid circular imports
+        from ..relationships.manager import RelationshipManager
+        from ..database import get_db_session
+        
+        # Get current state
+        async with get_db_session() as session:
+            relationship_manager = RelationshipManager(session)
+            emotional_state = await relationship_manager.get_emotional_state(persona_id)
+            
+            # Update provided fields
+            if "mood" in params:
+                emotional_state.mood = max(-1.0, min(1.0, float(params["mood"])))
+            if "energy_level" in params:
+                emotional_state.energy_level = max(0.0, min(1.0, float(params["energy_level"])))
+            if "stress_level" in params:
+                emotional_state.stress_level = max(0.0, min(1.0, float(params["stress_level"])))
+            if "curiosity" in params:
+                emotional_state.curiosity = max(0.0, min(1.0, float(params["curiosity"])))
+            if "social_battery" in params:
+                emotional_state.social_battery = max(0.0, min(1.0, float(params["social_battery"])))
+            
+            # Update timestamp
+            emotional_state.last_updated = datetime.now(timezone.utc)
+            
+            # Save changes
+            success = await relationship_manager.update_emotional_state(emotional_state)
+            
+            if success:
+                return {
+                    "success": True,
+                    "message": "Emotional state updated successfully",
+                    "updated_state": {
+                        "mood": emotional_state.mood,
+                        "energy_level": emotional_state.energy_level,
+                        "stress_level": emotional_state.stress_level,
+                        "curiosity": emotional_state.curiosity,
+                        "social_battery": emotional_state.social_battery,
+                        "last_updated": emotional_state.last_updated.isoformat()
+                    }
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Failed to update emotional state"
+                }
