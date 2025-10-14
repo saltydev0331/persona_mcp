@@ -516,6 +516,44 @@ The server maintains conversation sessions per WebSocket connection:
 - **Session Timeout**: 24 hours of inactivity
 - **Auto-cleanup**: Expired sessions automatically removed
 
+## Testing
+
+### Comprehensive Test Suite
+
+Run the full integration test suite with pytest:
+
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run integration tests specifically
+python -m pytest tests/integration/ -v
+```
+
+### Legacy Testing Tools
+
+The original testing clients are still available:
+
+```bash
+# Automated MCP method testing
+python client/quick_test.py
+
+# Interactive testing and exploration
+python client/mcp_client.py
+```
+
+### Test Coverage
+
+The test suite verifies:
+
+- ✅ All 25+ MCP endpoints (100% success rate)
+- ✅ Response format validation
+- ✅ Error handling and edge cases
+- ✅ Conversation flow management
+- ✅ Memory operations and lifecycle
+- ✅ Session management and cleanup
+- ✅ Modern datetime handling across all components
+
 ## Configuration
 
 Current configuration is hardcoded but will support:

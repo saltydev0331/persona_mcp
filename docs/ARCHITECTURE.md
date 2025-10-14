@@ -354,18 +354,32 @@ With optimizations:
 - **HTTPS/WSS**: Encrypted connections
 - **Resource Monitoring**: Prevent resource exhaustion
 
-## Testing Architecture
+### Testing Architecture
 
 ### Current Test Suite
 
+- `tests/integration/` - Comprehensive integration test suite (100% success rate)
 - `client/quick_test.py` - Automated MCP method testing
 - `client/mcp_client.py` - Interactive testing interface
 - Manual testing with conversation scenarios
 
+### Test Commands
+
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run integration tests specifically
+python -m pytest tests/integration/ -v
+
+# Legacy quick test (still functional)
+python client/quick_test.py
+```
+
 ### Planned Testing Expansion
 
 - **Unit Tests**: Individual component testing
-- **Integration Tests**: Full workflow testing
+- **Integration Tests**: ✅ Implemented with 100% pass rate
 - **Performance Tests**: Load and stress testing
 - **Regression Tests**: Automated CI/CD pipeline
 

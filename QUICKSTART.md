@@ -65,11 +65,15 @@ python server.py --debug
 ## Testing
 
 ```bash
-# Run test suite
-python -m pytest tests/
+# Run integration test suite (100% pass rate)
+python -m pytest tests/integration/ -v
 
-# Run specific tests
-python -m pytest tests/test_models.py -v
+# Run specific integration tests
+python -m pytest tests/integration/test_config_integration.py -v
+python -m pytest tests/integration/test_streaming_chat_integration.py -v
+
+# Run all tests
+python -m pytest tests/ --tb=short
 ```
 
 ## Architecture

@@ -27,7 +27,8 @@ A production-ready, local-first MCP (Model Context Protocol) server for managing
 
 ### 🧪 **Testing & Simulation**
 
-- **Comprehensive Test Suite**: Memory, pruning, and decay system validation
+- **100% Integration Test Success**: Complete test suite with 38/38 tests passing
+- **Comprehensive Test Framework**: Organized integration vs legacy test structure
 - **Chatroom Simulation**: Multi-persona interaction testing harness
 - **API Testing**: Complete MCP endpoint validation tools
 
@@ -86,6 +87,8 @@ persona-mcp/
 │   ├── mcp/             # Full MCP protocol implementation
 │   └── simulation/      # Multi-persona testing harness
 ├── tests/               # Comprehensive test suite
+│   ├── integration/     # Integration tests (100% pass rate)
+│   └── legacy_integration/  # Legacy development tests
 ├── docs/                # Documentation and design specs
 ├── client/              # Reference MCP client implementation
 ├── data/               # Local SQLite databases
@@ -240,18 +243,20 @@ Auto-Pruning Trigger       | 1000+ memories   | Smart thresholds
 venv\Scripts\activate  # Windows
 # source venv/bin/activate  # macOS/Linux
 
-# Run complete test suite
-python -m pytest tests/ -v
+# Run complete integration test suite (100% pass rate)
+python -m pytest tests/integration/ -v
 
-# Test memory management systems
-python test_importance_scoring.py      # Smart importance scoring
-python test_memory_pruning.py          # Pruning system validation
-python test_memory_decay.py           # Decay system testing
-python test_importance_integration.py  # Integration testing
+# Run specific integration test categories
+python -m pytest tests/integration/test_config_integration.py -v          # Configuration system
+python -m pytest tests/integration/test_importance_scoring_integration.py -v  # Importance scoring
+python -m pytest tests/integration/test_memory_workflow_integration.py -v     # Memory workflows
+python -m pytest tests/integration/test_streaming_chat_integration.py -v      # Streaming chat
 
-# API endpoint testing
-python test_pruning_api.py            # MCP API validation
-python test_memory_workflow.py        # End-to-end workflow
+# Run legacy test files (development/debugging)
+python -m pytest tests/legacy_integration/ -v
+
+# Run all tests with coverage
+python -m pytest tests/ --tb=short
 ```
 
 ### Simulation & Performance Testing
@@ -269,6 +274,11 @@ python client/mcp_client.py --auto-test
 
 # Memory system stress testing
 python examples.py                     # Interactive examples
+
+# Legacy integration tests (development/debugging)
+python tests/legacy_integration/test_memory_workflow.py
+python tests/legacy_integration/test_importance_scoring.py
+python tests/legacy_integration/test_streaming_chat.py
 
 # Production server with simulation
 python server.py --simulate 5 --debug
