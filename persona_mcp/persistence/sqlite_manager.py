@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 import aiosqlite
 
+from ..logging import get_logger
 from ..models import Persona, PersonaInteractionState, Relationship, Memory, ConversationContext, ConversationTurn
 
 
@@ -18,6 +19,7 @@ class SQLiteManager:
     def __init__(self, db_path: str = "data/personas.db"):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.logger = get_logger(__name__)
 
     async def initialize(self):
         """Initialize database with required tables and optimizations"""
@@ -183,7 +185,7 @@ class SQLiteManager:
                 await db.commit()
                 return True
         except Exception as e:
-            print(f"Error saving persona {persona.id}: {e}")
+            self.logger.error(f"Error saving persona {persona.id}: {e}")
             return False
 
     async def load_persona(self, persona_id: str) -> Optional[Persona]:
@@ -238,7 +240,7 @@ class SQLiteManager:
                 return persona
 
         except Exception as e:
-            print(f"Error loading persona {persona_id}: {e}")
+            self.logger.error(f"Error loading persona {persona_id}: {e}")
             return None
 
     async def list_personas(self) -> List[Persona]:
@@ -253,7 +255,7 @@ class SQLiteManager:
                         if persona:
                             personas.append(persona)
         except Exception as e:
-            print(f"Error listing personas: {e}")
+            self.logger.error(f"Error listing personas: {e}")
         
         return personas
 
@@ -281,7 +283,7 @@ class SQLiteManager:
                 await db.commit()
                 return True
         except Exception as e:
-            print(f"Error saving relationship: {e}")
+            self.logger.error(f"Error saving relationship: {e}")
             return False
 
     async def load_relationship(self, persona1_id: str, persona2_id: str) -> Optional[Relationship]:
@@ -307,7 +309,7 @@ class SQLiteManager:
                             relationship_type=row[8]
                         )
         except Exception as e:
-            print(f"Error loading relationship: {e}")
+            self.logger.error(f"Error loading relationship: {e}")
         
         return None
 
@@ -340,7 +342,7 @@ class SQLiteManager:
                 await db.commit()
                 return True
         except Exception as e:
-            print(f"Error saving conversation: {e}")
+            self.logger.error(f"Error saving conversation: {e}")
             return False
 
     async def save_conversation_turn(self, turn: ConversationTurn) -> bool:
@@ -367,7 +369,7 @@ class SQLiteManager:
                 await db.commit()
                 return True
         except Exception as e:
-            print(f"Error saving conversation turn: {e}")
+            self.logger.error(f"Error saving conversation turn: {e}")
             return False
     
     # Additional relationship methods for MCP handlers
@@ -399,5 +401,5 @@ class SQLiteManager:
                         ))
                     return relationships
         except Exception as e:
-            print(f"Error loading relationships for {persona_id}: {e}")
+            self.logger.error(f"Error loading relationships for {persona_id}: {e}")
             return []

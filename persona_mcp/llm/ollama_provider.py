@@ -8,8 +8,8 @@ from typing import Dict, List, Optional, Any, AsyncGenerator
 from abc import ABC, abstractmethod
 import asyncio
 from datetime import datetime
-import logging
 
+from ..logging import get_logger
 from ..models import Persona, ConversationContext
 
 
@@ -51,6 +51,7 @@ class OllamaProvider(LLMProvider):
         self.base_url = base_url.rstrip('/')
         self.default_model = default_model
         self.client = httpx.AsyncClient(timeout=60.0)
+        self.logger = get_logger(__name__)
     
     async def is_available(self) -> bool:
         """Check if Ollama is running and accessible"""
@@ -83,7 +84,7 @@ class OllamaProvider(LLMProvider):
             }
             
             # Log the model being used
-            print(f"🤖 Requesting Ollama model: {model_to_use}")
+            self.logger.debug(f"🤖 Requesting Ollama model: {model_to_use}")
             
             response = await self.client.post(
                 f"{self.base_url}/api/generate",
@@ -93,14 +94,14 @@ class OllamaProvider(LLMProvider):
             if response.status_code == 200:
                 result = response.json()
                 # Log confirmation of successful model usage
-                print(f"✅ Ollama responded successfully using model: {model_to_use}")
+                self.logger.debug(f"✅ Ollama responded successfully using model: {model_to_use}")
                 return result.get("response", "").strip()
             else:
-                print(f"❌ Ollama API error: {response.status_code} - {response.text}")
+                self.logger.error(f"❌ Ollama API error: {response.status_code} - {response.text}")
                 return self._generate_fallback_response(persona, context)
                 
         except Exception as e:
-            print(f"Error calling Ollama: {e}")
+            self.logger.error(f"Error calling Ollama: {e}")
             return self._generate_fallback_response(persona, context)
     
     async def generate_response_stream(
@@ -112,7 +113,7 @@ class OllamaProvider(LLMProvider):
     ) -> AsyncGenerator[str, None]:
         """Generate streaming response using Ollama"""
         
-        logger = logging.getLogger(__name__)
+        logger = get_logger(__name__)
         
         # Build the full prompt with persona context
         full_prompt = self._build_persona_prompt(prompt, persona, context, constraints)
@@ -310,7 +311,7 @@ class LLMManager:
         """Initialize and verify LLM providers"""
         available = await self.ollama.is_available()
         if not available:
-            print("Warning: Ollama is not available. Responses will use fallback templates.")
+            self.logger.warning("Ollama is not available. Responses will use fallback templates.")
         return available
     
     async def generate_response_by_score(

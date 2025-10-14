@@ -4,11 +4,11 @@ Chatroom simulation harness for testing persona interactions
 
 import asyncio
 import random
-import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
 from ..config import get_config
+from ..logging import get_logger
 from ..models import Persona, ConversationContext, SimulationState, Priority
 from ..conversation import ConversationEngine
 from ..persistence import SQLiteManager, VectorMemoryManager
@@ -30,8 +30,9 @@ class ChatroomSimulation:
         self.llm = llm_manager
         self.conversation = conversation_engine
         
-        # Get configuration instance
+        # Get configuration instance and logger
         self.config = get_config()
+        self.logger = get_logger(__name__)
         
         # Simulation state
         self.state = SimulationState()
@@ -61,20 +62,20 @@ class ChatroomSimulation:
     async def initialize_simulation(self):
         """Set up the simulation environment"""
         
-        logging.info("Initializing chatroom simulation...")
+        self.logger.info("Initializing chatroom simulation...")
         
         # Ensure default personas exist
         personas = await self.db.list_personas()
         
         if len(personas) < 2:
-            logging.warning("Need at least 2 personas for simulation")
+            self.logger.warning("Need at least 2 personas for simulation")
             return False
         
         # Place personas in the tavern
         for persona in personas:
             self.state.persona_locations[persona.id] = "tavern"
         
-        logging.info(f"Simulation initialized with {len(personas)} personas in the tavern")
+        self.logger.info(f"Simulation initialized with {len(personas)} personas in the tavern")
         return True
     
     async def run_simulation(self, duration_minutes: int = 10):
@@ -86,7 +87,7 @@ class ChatroomSimulation:
         self.state.simulation_running = True
         end_time = datetime.now() + timedelta(minutes=duration_minutes)
         
-        logging.info(f"Starting simulation for {duration_minutes} minutes...")
+        self.logger.info(f"Starting simulation for {duration_minutes} minutes...")
         
         tick_count = 0
         
@@ -97,13 +98,13 @@ class ChatroomSimulation:
                 await asyncio.sleep(self.tick_interval)
                 
         except KeyboardInterrupt:
-            logging.info("Simulation interrupted by user")
+            self.logger.info("Simulation interrupted by user")
         
         finally:
             self.state.simulation_running = False
             await self._cleanup_simulation()
         
-        logging.info("Simulation completed")
+        self.logger.info("Simulation completed")
         await self._print_simulation_summary()
     
     async def _simulation_tick(self, tick_count: int):
@@ -112,7 +113,7 @@ class ChatroomSimulation:
         current_time = datetime.now()
         self.state.last_tick = current_time.timestamp()
         
-        logging.info(f"Simulation tick {tick_count}")
+        self.logger.info(f"Simulation tick {tick_count}")
         
         # Update persona energy regeneration
         await self.conversation.regenerate_social_energy()
@@ -181,7 +182,7 @@ class ChatroomSimulation:
             speaker = await self.db.load_persona(speaker_id)
             speaker_name = speaker.name if speaker else speaker_id
             
-            logging.info(f"Conversation turn: {speaker_name} -> {turn.content[:60]}... (Score: {turn.continue_score})")
+            self.logger.info(f"Conversation turn: {speaker_name} -> {turn.content[:60]}... (Score: {turn.continue_score})")
         
     def _generate_conversation_prompt(self, context: ConversationContext) -> str:
         """Generate a natural conversation prompt based on context"""
@@ -274,7 +275,7 @@ class ChatroomSimulation:
         if context:
             self.state.active_conversations[context.id] = context
             
-            logging.info(f"Started conversation: {persona1.name} & {persona2.name} about {topic}")
+            self.logger.info(f"Started conversation: {persona1.name} & {persona2.name} about {topic}")
             
             # Immediately generate first exchange
             await self._advance_conversation(context.id)
@@ -293,7 +294,7 @@ class ChatroomSimulation:
             persona = await self.db.load_persona(persona_id)
             participant_names.append(persona.name if persona else persona_id)
         
-        logging.info(f"Ending conversation: {' & '.join(participant_names)} ({reason})")
+        self.logger.info(f"Ending conversation: {' & '.join(participant_names)} ({reason})")
         
         # End through conversation engine
         await self.conversation._end_conversation(context, reason)
@@ -307,7 +308,7 @@ class ChatroomSimulation:
         active_count = len(self.state.active_conversations)
         
         if active_count > 0:
-            logging.info(f"Active conversations: {active_count}")
+            self.logger.info(f"Active conversations: {active_count}")
             
             for conv_id, context in self.state.active_conversations.items():
                 # Get participant names
@@ -316,7 +317,7 @@ class ChatroomSimulation:
                     persona = await self.db.load_persona(persona_id)
                     participant_names.append(persona.name if persona else persona_id)
                 
-                logging.info(f"  {' & '.join(participant_names)}: {context.topic} (Score: {context.continue_score}, Turns: {context.turn_count})")
+                self.logger.info(f"  {' & '.join(participant_names)}: {context.topic} (Score: {context.continue_score}, Turns: {context.turn_count})")
     
     async def _cleanup_simulation(self):
         """Clean up simulation state"""
@@ -325,12 +326,12 @@ class ChatroomSimulation:
         for conv_id in list(self.state.active_conversations.keys()):
             await self._end_simulation_conversation(conv_id, "simulation_ended")
         
-        logging.info("Simulation cleanup completed")
+        self.logger.info("Simulation cleanup completed")
     
     async def _print_simulation_summary(self):
         """Print summary of simulation results"""
         
-        logging.info("=== SIMULATION SUMMARY ===")
+        self.logger.info("=== SIMULATION SUMMARY ===")
         
         # Get all personas and their current states
         personas = await self.db.list_personas()
@@ -339,23 +340,21 @@ class ChatroomSimulation:
             state = persona.interaction_state
             memory_stats = await self.memory.get_memory_stats(persona.id)
             
-            logging.info(f"{persona.name}:")
-            logging.info(f"  Social Energy: {state.social_energy}/200")
-            logging.info(f"  Interaction Fatigue: {state.interaction_fatigue}")
-            logging.info(f"  Available Time: {state.available_time}s")
-            logging.info(f"  Memories: {memory_stats.get('total_memories', 0)}")
+            self.logger.info(f"{persona.name}:")
+            self.logger.info(f"  Social Energy: {state.social_energy}/200")
+            self.logger.info(f"  Interaction Fatigue: {state.interaction_fatigue}")
+            self.logger.info(f"  Available Time: {state.available_time}s")
+            self.logger.info(f"  Memories: {memory_stats.get('total_memories', 0)}")
         
-        logging.info("========================")
+        self.logger.info("========================")
 
 
 async def run_chatroom_simulation(duration_minutes: int = 5):
     """Convenience function to run a standalone simulation"""
     
-    # Setup logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    # Setup logging - use centralized system
+    logger = get_logger(__name__)
+    logger.info("Starting standalone chatroom simulation")
     
     # Initialize components
     db_manager = SQLiteManager("data/simulation.db")

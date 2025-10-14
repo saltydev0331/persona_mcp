@@ -42,6 +42,11 @@ class ServerConfig:
     debug_mode: bool = False
     websocket_timeout: int = 300
     max_connections: int = 100
+    
+    # Logging configuration
+    log_level: str = "INFO"
+    log_file: Optional[str] = None
+    structured_logging: bool = False
 
 
 @dataclass
@@ -262,12 +267,16 @@ class ConfigManager:
     
     def _load_server_config(self) -> ServerConfig:
         """Load server configuration from environment variables"""
+        log_file = os.getenv("LOG_FILE")
         return ServerConfig(
             host=os.getenv("SERVER_HOST", "localhost"),
             port=self._get_env_int("SERVER_PORT", 8000),
             debug_mode=self._get_env_bool("DEBUG_MODE", False),
             websocket_timeout=self._get_env_int("WEBSOCKET_TIMEOUT", 300),
-            max_connections=self._get_env_int("MAX_CONNECTIONS", 100)
+            max_connections=self._get_env_int("MAX_CONNECTIONS", 100),
+            log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+            log_file=log_file,
+            structured_logging=self._get_env_bool("STRUCTURED_LOGGING", False)
         )
     
     def _load_ollama_config(self) -> OllamaConfig:

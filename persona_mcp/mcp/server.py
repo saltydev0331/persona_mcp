@@ -2,13 +2,13 @@
 WebSocket server for MCP JSON-RPC 2.0 protocol
 """
 
-import logging
 import asyncio
 from typing import Dict, Any, Optional
 from aiohttp import web, WSMsgType
 import aiohttp
 
 from ..config import get_config
+from ..logging import get_logger, set_correlation_id, clear_correlation_id
 from .handlers import MCPHandlers
 from .streaming_handlers import StreamingMCPHandlers
 from ..conversation import ConversationEngine
@@ -26,8 +26,9 @@ class MCPWebSocketServer:
         port: Optional[int] = None,
         path: str = "/mcp"
     ):
-        # Get configuration instance
+        # Get configuration instance and logger
         self.config = get_config()
+        self.logger = get_logger(__name__)
         
         self.host = host or self.config.server.host
         self.port = port or self.config.server.port
@@ -77,18 +78,18 @@ class MCPWebSocketServer:
     async def initialize(self):
         """Initialize all components"""
         
-        logging.info("Initializing Persona MCP Server...")
+        self.logger.info("Initializing Persona MCP Server...")
         
         # Initialize database
         await self.db_manager.initialize()
-        logging.info("Database initialized")
+        self.logger.info("Database initialized")
         
         # Initialize LLM manager
         llm_available = await self.llm_manager.initialize()
         if llm_available:
-            logging.info("LLM (Ollama) connection established")
+            self.logger.info("LLM (Ollama) connection established")
         else:
-            logging.warning("LLM (Ollama) not available - using fallback responses")
+            self.logger.warning("LLM (Ollama) not available - using fallback responses")
         
         # Create default personas if none exist
         await self._create_default_personas()
@@ -96,17 +97,17 @@ class MCPWebSocketServer:
         # Start background tasks
         self._start_background_tasks()
         
-        logging.info("Persona MCP Server initialization complete")
+        self.logger.info("Persona MCP Server initialization complete")
     
     async def _create_default_personas(self):
         """Create default Aria and Kira personas for testing"""
         
         personas = await self.db_manager.list_personas()
         if len(personas) >= 2:
-            logging.info(f"Found {len(personas)} existing personas")
+            self.logger.info(f"Found {len(personas)} existing personas")
             return
         
-        logging.info("Creating default personas...")
+        self.logger.info("Creating default personas...")
         
         # Create Aria - energetic bard
         from ..models import Persona, Priority
@@ -178,7 +179,7 @@ class MCPWebSocketServer:
         await self.memory_manager.initialize_persona_memory(aria.id)
         await self.memory_manager.initialize_persona_memory(kira.id)
         
-        logging.info("Default personas created: Aria (bard) and Kira (scholar)")
+        self.logger.info("Default personas created: Aria (bard) and Kira (scholar)")
     
     def _start_background_tasks(self):
         """Start background maintenance tasks"""
@@ -187,7 +188,7 @@ class MCPWebSocketServer:
         energy_task = asyncio.create_task(self._energy_regeneration_loop())
         self.background_tasks.append(energy_task)
         
-        logging.info("Background tasks started")
+        self.logger.info("Background tasks started")
     
     async def _energy_regeneration_loop(self):
         """Background task to regenerate persona social energy"""
@@ -197,7 +198,7 @@ class MCPWebSocketServer:
                 await self.conversation_engine.regenerate_social_energy()
                 await asyncio.sleep(60)  # Run every minute
             except Exception as e:
-                logging.error(f"Error in energy regeneration: {e}")
+                self.logger.error(f"Error in energy regeneration: {e}")
                 await asyncio.sleep(60)
     
     async def health_check(self, request):
@@ -218,12 +219,17 @@ class MCPWebSocketServer:
         connection_id = f"conn_{len(self.connections)}"
         self.connections[connection_id] = ws
         
-        logging.info(f"New WebSocket connection: {connection_id}")
+        # Set correlation ID for this WebSocket connection
+        set_correlation_id(connection_id)
+        self.logger.info(f"New WebSocket connection established")
         
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
                     try:
+                        # Refresh correlation ID for each message
+                        set_correlation_id(connection_id)
+                        
                         # Parse JSON-RPC request
                         request_data = json.loads(msg.data)
                         
@@ -255,7 +261,7 @@ class MCPWebSocketServer:
                         await ws.send_str(json.dumps(error_response))
                         
                     except Exception as e:
-                        logging.error(f"Error processing WebSocket message: {e}")
+                        self.logger.error(f"Error processing WebSocket message: {e}")
                         error_response = {
                             "jsonrpc": "2.0",
                             "error": {
@@ -268,17 +274,19 @@ class MCPWebSocketServer:
                         await ws.send_str(json.dumps(error_response))
                 
                 elif msg.type == WSMsgType.ERROR:
-                    logging.error(f"WebSocket error: {ws.exception()}")
+                    self.logger.error(f"WebSocket error: {ws.exception()}")
                     break
         
         except Exception as e:
-            logging.error(f"WebSocket connection error: {e}")
+            self.logger.error(f"WebSocket connection error: {e}")
         
         finally:
             # Clean up connection
             if connection_id in self.connections:
                 del self.connections[connection_id]
-            logging.info(f"WebSocket connection closed: {connection_id}")
+            set_correlation_id(connection_id)
+            self.logger.info("WebSocket connection closed")
+            clear_correlation_id()
         
         return ws
     
@@ -295,7 +303,7 @@ class MCPWebSocketServer:
             try:
                 await ws.send_str(message_str)
             except Exception as e:
-                logging.error(f"Error broadcasting to {connection_id}: {e}")
+                self.logger.error(f"Error broadcasting to {connection_id}: {e}")
                 # Remove dead connection
                 if connection_id in self.connections:
                     del self.connections[connection_id]
@@ -311,13 +319,13 @@ class MCPWebSocketServer:
         site = web.TCPSite(runner, self.host, self.port)
         await site.start()
         
-        logging.info(f"Persona MCP Server started on ws://{self.host}:{self.port}{self.path}")
+        self.logger.info(f"Persona MCP Server started on ws://{self.host}:{self.port}{self.path}")
         return runner
     
     async def stop_server(self):
         """Stop the server and clean up resources"""
         
-        logging.info("Stopping Persona MCP Server...")
+        self.logger.info("Stopping Persona MCP Server...")
         
         # Cancel background tasks
         for task in self.background_tasks:
@@ -333,7 +341,7 @@ class MCPWebSocketServer:
         # Close memory manager
         await self.memory_manager.close()
         
-        logging.info("Persona MCP Server stopped")
+        self.logger.info("Persona MCP Server stopped")
 
 
 async def create_server(

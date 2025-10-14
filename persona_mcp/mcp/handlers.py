@@ -3,13 +3,13 @@ MCP JSON-RPC 2.0 protocol handlers for persona interactions
 """
 
 import json
-import logging
 import time
 import uuid
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
 from ..config import get_config
+from ..logging import get_logger
 from ..models import MCPRequest, MCPResponse, MCPError, Persona, ConversationContext, ConversationTurn, Memory, Priority
 from ..conversation import ConversationEngine
 from ..persistence import SQLiteManager, VectorMemoryManager
@@ -50,8 +50,9 @@ class MCPHandlers:
         self.current_persona_id: Optional[str] = None
         self.current_conversation_id: Optional[str] = None
         
-        # Get configuration instance
+        # Get configuration instance and logger
         self.config = get_config()
+        self.logger = get_logger(__name__)
         
         # Context management settings from config
         self.max_context_messages = self.config.session.max_context_messages
@@ -126,7 +127,7 @@ class MCPHandlers:
             )
             
         except Exception as e:
-            logging.error(f"Error handling MCP request: {e}")
+            self.logger.error(f"Error handling MCP request: {e}")
             return MCPResponse(
                 id=request_data.get("id"),
                 error={
@@ -217,12 +218,12 @@ class MCPHandlers:
                 conv["context_summary"] = summary
                 
             except Exception as e:
-                logging.warning(f"Failed to create conversation summary: {e}")
+                self.logger.warning(f"Failed to create conversation summary: {e}")
                 conv["context_summary"] = f"Previous conversation with {len(older_messages)} exchanges."
         
         # Update conversation with managed context
         conv["messages"] = recent_messages
-        logging.info(f"Managed context for persona {persona_id}: kept {len(recent_messages)} recent messages")
+        self.logger.info(f"Managed context for persona {persona_id}: kept {len(recent_messages)} recent messages")
     
     def _get_conversation_context(self, persona_id: str) -> str:
         """Get formatted conversation context for LLM prompt"""
@@ -254,7 +255,7 @@ class MCPHandlers:
             conv = self.conversations[persona_id]
             if conv["last_activity"] < cutoff:
                 del self.conversations[persona_id]
-                logging.info(f"Cleaned up expired conversation for persona {persona_id}")
+                self.logger.info(f"Cleaned up expired conversation for persona {persona_id}")
 
     # Persona operations
     async def handle_persona_switch(self, params: Dict[str, Any]) -> Dict[str, Any]:
