@@ -423,18 +423,20 @@ class RelationshipManager:
     def _row_to_relationship(self, row) -> Optional[Relationship]:
         """Convert database row to Relationship model"""
         try:
+            # Adjust column indices - mock database doesn't include id column (column 0)
+            # So all columns are shifted left by 1
             return Relationship(
-                persona1_id=row[1],  # Assuming column order from CREATE TABLE
-                persona2_id=row[2],
-                affinity=row[3],
-                trust=row[4],
-                respect=row[5],
-                intimacy=row[6],
-                relationship_type=RelationshipType(row[7]),
-                interaction_count=row[8],
-                total_interaction_time=row[9],
-                first_meeting=datetime.fromisoformat(row[10]) if row[10] else datetime.now(),
-                last_interaction=datetime.fromisoformat(row[11]) if row[11] else None
+                persona1_id=row[0],  # persona1_id (was column 1, now index 0)
+                persona2_id=row[1],  # persona2_id (was column 2, now index 1)
+                affinity=row[2],     # affinity (was column 3, now index 2)
+                trust=row[3],        # trust (was column 4, now index 3)
+                respect=row[4],      # respect (was column 5, now index 4)
+                intimacy=row[5],     # intimacy (was column 6, now index 5)
+                relationship_type=RelationshipType(row[6]),  # relationship_type (was column 7, now index 6)
+                interaction_count=row[7],    # interaction_count (was column 8, now index 7)
+                total_interaction_time=row[8],  # total_interaction_time (was column 9, now index 8)
+                first_meeting=datetime.fromisoformat(row[9]) if row[9] else datetime.now(),    # first_meeting (was column 10, now index 9)
+                last_interaction=datetime.fromisoformat(row[10]) if row[10] else None  # last_interaction (was column 11, now index 10)
             )
         except Exception as e:
             self.logger.error(f"Error converting row to relationship: {e}")
