@@ -246,6 +246,22 @@ class VectorMemoryManager:
             from collections import Counter
             type_counts = Counter(memory_types)
             
+            # Count memories created today
+            from datetime import datetime, timezone
+            today = datetime.now(timezone.utc).date()
+            created_today = 0
+            
+            for metadata in metadatas:
+                created_at_str = metadata.get("created_at")
+                if created_at_str:
+                    try:
+                        created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                        if created_at.date() == today:
+                            created_today += 1
+                    except (ValueError, AttributeError):
+                        # Skip invalid dates
+                        pass
+            
             stats_time = (time.time() - start_time) * 1000  # Convert to ms
             
             result = {
@@ -253,6 +269,7 @@ class VectorMemoryManager:
                 "avg_importance": sum(importance_scores) / len(importance_scores) if importance_scores else 0,
                 "memory_types": dict(type_counts),
                 "high_importance_count": sum(1 for score in importance_scores if score >= 0.7),
+                "created_today": created_today,
                 "stats_calculation_time_ms": round(stats_time, 2)
             }
             

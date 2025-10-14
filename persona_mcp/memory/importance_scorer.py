@@ -104,9 +104,14 @@ class MemoryImportanceScorer:
         importance += context_score * 0.2
         
         # 3. Persona interest alignment (0.0-0.15)
+        # Consider both speaker and listener perspectives
         if speaker:
-            interest_score = self._calculate_persona_interest_alignment(content, speaker)
-            importance += interest_score * 0.15
+            speaker_interest = self._calculate_persona_interest_alignment(content, speaker)
+            importance += speaker_interest * 0.1
+        
+        if listener:
+            listener_interest = self._calculate_persona_interest_alignment(content, listener)
+            importance += listener_interest * 0.05  # Listener perspective is also important
         
         # 4. User engagement signals (0.0-0.1)
         engagement_score = self._analyze_user_engagement(content, turn)

@@ -10,7 +10,7 @@ import asyncio
 import time
 import math
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from enum import Enum
 import logging
@@ -184,7 +184,7 @@ class MemoryDecaySystem:
                 metrics.average_decay_amount /= len([p for p in persona_ids 
                                                    if p in self.persona_last_decayed])
             
-            self.last_decay_run = datetime.utcnow()
+            self.last_decay_run = datetime.now(timezone.utc)
             metrics.last_run_time = self.last_decay_run
             
             self.logger.info(
@@ -211,7 +211,7 @@ class MemoryDecaySystem:
             last_decay = self.persona_last_decayed.get(persona_id)
             if not last_decay:
                 return 0  # Highest priority - never decayed
-            return (datetime.utcnow() - last_decay).total_seconds()
+            return (datetime.now(timezone.utc) - last_decay).total_seconds()
         
         sorted_personas = sorted(persona_ids, key=decay_priority, reverse=True)
         return sorted_personas[:self.config.max_personas_per_cycle]
@@ -270,7 +270,7 @@ class MemoryDecaySystem:
                         metrics.auto_prunes_triggered = 1
             
             # Update tracking
-            self.persona_last_decayed[persona_id] = datetime.utcnow()
+            self.persona_last_decayed[persona_id] = datetime.now(timezone.utc)
             
         except Exception as e:
             self.logger.error(f"Error decaying persona {persona_id}: {e}")
@@ -288,11 +288,11 @@ class MemoryDecaySystem:
             return memory.importance
         
         # Calculate age in days
-        age_days = (datetime.utcnow() - memory.created_at).days
+        age_days = (datetime.now(timezone.utc) - memory.created_at).days
         
         # Check for recent access protection
         if hasattr(memory, 'last_accessed') and memory.last_accessed:
-            days_since_access = (datetime.utcnow() - memory.last_accessed).days
+            days_since_access = (datetime.now(timezone.utc) - memory.last_accessed).days
             if days_since_access <= self.config.access_protection_days:
                 return memory.importance  # Protected by recent access
         

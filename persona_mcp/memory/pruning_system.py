@@ -9,7 +9,7 @@ the most valuable memories while maintaining performance.
 import asyncio
 import time
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from dataclasses import dataclass
 from enum import Enum
@@ -109,7 +109,7 @@ class MemoryPruningSystem:
             # Check time since last pruning
             last_pruned = self.persona_last_pruned.get(persona_id)
             if last_pruned:
-                time_since_prune = datetime.utcnow() - last_pruned
+                time_since_prune = datetime.now(timezone.utc) - last_pruned
                 if time_since_prune < timedelta(hours=1):  # Minimum 1 hour between prunes
                     return False
             
@@ -178,7 +178,7 @@ class MemoryPruningSystem:
                 metrics.average_importance_kept = sum(mem[1].importance for mem in remaining_memories) / len(remaining_memories)
             
             # Update tracking
-            self.persona_last_pruned[persona_id] = datetime.utcnow()
+            self.persona_last_pruned[persona_id] = datetime.now(timezone.utc)
             
             self.logger.info(
                 f"Pruning completed for {persona_id}: "
@@ -219,7 +219,7 @@ class MemoryPruningSystem:
         """Calculate pruning scores for memories (lower = more likely to be pruned)"""
         
         scored_memories = []
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         
         for memory in memories:
             score = 0.0
@@ -279,7 +279,7 @@ class MemoryPruningSystem:
             
             # Check age-based protection for unaccessed memories
             if memory.accessed_count == 0:
-                age_days = (datetime.utcnow() - memory.created_at).days
+                age_days = (datetime.now(timezone.utc) - memory.created_at).days
                 if age_days < self.config.zero_access_grace_days:
                     continue
             
@@ -364,7 +364,7 @@ class MemoryPruningSystem:
                     total_metrics.errors_encountered += persona_metrics.errors_encountered
             
             # Update global pruning timestamp
-            self.last_global_prune = datetime.utcnow()
+            self.last_global_prune = datetime.now(timezone.utc)
             
         except Exception as e:
             self.logger.error(f"Error in global pruning: {e}")

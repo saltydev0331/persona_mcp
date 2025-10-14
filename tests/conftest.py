@@ -5,9 +5,21 @@ Test configuration and utilities
 import pytest
 import asyncio
 import logging
+import os
+from pathlib import Path
 
 # Configure pytest for async tests
 pytest_plugins = ('pytest_asyncio',)
+
+
+def pytest_configure(config):
+    """Configure pytest with custom markers"""
+    config.addinivalue_line(
+        "markers", "integration: marks tests as integration tests (may require running server)"
+    )
+    config.addinivalue_line(
+        "markers", "unit: marks tests as unit tests (no external dependencies)"
+    )
 
 
 @pytest.fixture(scope="session")

@@ -8,7 +8,7 @@ Eliminates hacky cross-references and provides proper state synchronization.
 import asyncio
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, Set
 from dataclasses import dataclass, field
 
@@ -21,12 +21,12 @@ class ConversationSession:
     id: str
     persona_id: str
     turn_count: int = 0
-    last_activity: datetime = field(default_factory=datetime.utcnow)
+    last_activity: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     context: Dict[str, Any] = field(default_factory=dict)
     
     def update_activity(self):
         """Update last activity timestamp"""
-        self.last_activity = datetime.utcnow()
+        self.last_activity = datetime.now(timezone.utc)
     
     def increment_turn(self):
         """Increment turn count and update activity"""
@@ -244,7 +244,7 @@ class MCPSessionManager:
     
     async def _cleanup_stale_sessions(self):
         """Clean up stale conversation and streaming sessions"""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         stale_threshold = timedelta(hours=1)  # 1 hour timeout
         
         # Clean up stale conversations

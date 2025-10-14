@@ -23,6 +23,15 @@ def mock_components():
     llm_manager = AsyncMock(spec=LLMManager)
     conversation_engine = AsyncMock(spec=ConversationEngine)
     
+    # Set up proper LLM manager structure
+    llm_manager.ollama = AsyncMock()
+    llm_manager.ollama.is_available.return_value = True
+    llm_manager.ollama.default_model = "llama3.1:8b"
+    llm_manager.ollama.list_available_models.return_value = ["llama3.1:8b", "mistral:7b"]
+    
+    # Set up conversation engine structure
+    conversation_engine.active_conversations = {}
+    
     return db_manager, memory_manager, llm_manager, conversation_engine
 
 
@@ -32,12 +41,20 @@ def mcp_handlers(mock_components):
     
     db_manager, memory_manager, llm_manager, conversation_engine = mock_components
     
+    # Import session manager for new architecture
+    from persona_mcp.mcp.session import MCPSessionManager
+    session_manager = MCPSessionManager()
+    
     handlers = MCPHandlers(
         conversation_engine,
         db_manager,
         memory_manager,
-        llm_manager
+        llm_manager,
+        session_manager
     )
+    
+    # Set up websocket ID for testing
+    handlers.set_websocket_id("test_websocket_001")
     
     return handlers
 
@@ -136,7 +153,9 @@ class TestPersonaOperations:
         assert result["persona_id"] == test_persona.id
         assert result["name"] == "Aria"
         assert result["status"] == "active"
-        assert mcp_handlers.current_persona_id == test_persona.id
+        # Check session manager has the correct persona set
+        current_persona = mcp_handlers.session.get_current_persona(mcp_handlers.websocket_id)
+        assert current_persona == test_persona.id
     
     @pytest.mark.asyncio
     async def test_persona_switch_not_found(self, mcp_handlers, mock_components):

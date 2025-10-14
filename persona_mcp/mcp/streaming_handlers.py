@@ -9,7 +9,7 @@ import logging
 import time
 import uuid
 from typing import Dict, Any, Optional, AsyncGenerator, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..models import Persona, ConversationContext, Priority
 from ..conversation import ConversationEngine
@@ -67,11 +67,19 @@ class StreamingMCPHandlers:
             "result": {
                 "event_type": event_type,
                 "stream_id": stream_id or str(uuid.uuid4()),
-                "timestamp": datetime.utcnow().isoformat() + "Z"
+                "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             }
         }
         
         if data is not None:
+            # Promote certain commonly accessed fields to top level for convenience
+            if isinstance(data, dict):
+                # Fields that tests expect at the top level
+                top_level_fields = ["persona_id", "chunk", "full_response", "tokens_used", "processing_time"]
+                for field in top_level_fields:
+                    if field in data:
+                        response["result"][field] = data[field]
+            
             response["result"]["data"] = data
             
         if error is not None:
@@ -159,6 +167,7 @@ class StreamingMCPHandlers:
                 request_id,
                 StreamingEventTypes.START,
                 data={
+                    "persona_id": current_persona.id,
                     "persona_name": current_persona.name,
                     "message": message,
                     "token_budget": token_budget
@@ -233,6 +242,7 @@ class StreamingMCPHandlers:
                         "chunk_count": chunk_count,
                         "processing_time": round(processing_time, 3),
                         "response_length": len(full_response),
+                        "tokens_used": int(len(full_response.split()) * 1.3),  # Estimate tokens
                         "persona_name": current_persona.name
                     },
                     stream_id=stream_id

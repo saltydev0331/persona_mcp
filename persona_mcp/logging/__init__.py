@@ -15,7 +15,7 @@ import logging.config
 import json
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from contextvars import ContextVar
 from pathlib import Path
@@ -39,7 +39,7 @@ class StructuredFormatter(logging.Formatter):
     
     def format(self, record):
         log_entry = {
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             'level': record.levelname,
             'logger': record.name,
             'message': record.getMessage(),

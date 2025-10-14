@@ -6,7 +6,7 @@ import json
 import time
 import uuid
 from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from ..config import get_config
 from ..logging import get_logger
@@ -35,6 +35,10 @@ class MCPHandlers:
         self.llm = llm_manager
         self.session = session_manager
         
+        # Get configuration instance and logger (early initialization)
+        self.config = get_config()
+        self.logger = get_logger(__name__)
+        
         # Memory importance scoring
         self.importance_scorer = MemoryImportanceScorer()
         
@@ -46,7 +50,12 @@ class MCPHandlers:
         
         # Session management (now handled by session manager)
         self.session_id: str = str(uuid.uuid4())
-        self.session_created: datetime = datetime.utcnow()
+        self.session_created: datetime = datetime.now(timezone.utc)
+        
+        # Context management settings from config
+        self.max_context_messages = self.config.session.max_context_messages
+        self.context_summary_threshold = self.config.session.context_summary_threshold
+        self.session_timeout_hours = self.config.session.session_timeout_hours
         
         # WebSocket connection ID (set by server when connection established)
         self.websocket_id: Optional[str] = None
@@ -55,15 +64,6 @@ class MCPHandlers:
         """Set WebSocket connection ID for session management"""
         self.websocket_id = websocket_id
         self.logger.debug(f"Set WebSocket ID {websocket_id[:8]}... for handlers")
-        
-        # Get configuration instance and logger
-        self.config = get_config()
-        self.logger = get_logger(__name__)
-        
-        # Context management settings from config
-        self.max_context_messages = self.config.session.max_context_messages
-        self.context_summary_threshold = self.config.session.context_summary_threshold
-        self.session_timeout_hours = self.config.session.session_timeout_hours
         
         # Method registry
         self.handlers = {
@@ -157,7 +157,7 @@ class MCPHandlers:
         message = {
             "role": role,  # "user" or "assistant"
             "content": content,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "metadata": metadata or {}
         }
         
@@ -217,31 +217,29 @@ class MCPHandlers:
         conv["messages"] = recent_messages
         self.logger.info(f"Managed context for persona {persona_id}: kept {len(recent_messages)} recent messages")
     
-    def _get_conversation_context(self, persona_id: str) -> str:
-        """Get formatted conversation context for LLM prompt"""
-        if persona_id not in self.conversations:
-            return ""
+    def _get_conversation_context_str(self, persona_id: str) -> str:
+        """Get formatted conversation context for LLM prompt (using session manager)"""
+        conversation_context_data = self.session.get_conversation_context(persona_id)
         
-        conv = self.conversations[persona_id]
+        if not conversation_context_data:
+            return ""
+            
         context_parts = []
         
-        # Add summary if available
-        if conv["context_summary"]:
-            context_parts.append(f"Previous conversation summary: {conv['context_summary']}")
+        # Add turn count info
+        if conversation_context_data.get("turn_count", 0) > 0:
+            context_parts.append(f"Previous conversation turns: {conversation_context_data['turn_count']}")
         
-        # Add recent messages
-        recent_messages = conv["messages"][-self.max_context_messages:]
-        if recent_messages:
-            context_parts.append("Recent conversation:")
-            for msg in recent_messages:
-                role_label = "You" if msg["role"] == "assistant" else "User"
-                context_parts.append(f"{role_label}: {msg['content']}")
+        # Add any additional context data
+        for key, value in conversation_context_data.items():
+            if key not in ["id", "turn_count", "last_activity"] and value:
+                context_parts.append(f"{key}: {value}")
         
-        return "\n".join(context_parts)
+        return ". ".join(context_parts)
     
     def _cleanup_expired_sessions(self):
         """Clean up old conversation data"""
-        cutoff = datetime.utcnow() - timedelta(hours=self.session_timeout_hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=self.session_timeout_hours)
         
         for persona_id in list(self.conversations.keys()):
             conv = self.conversations[persona_id]
@@ -311,11 +309,28 @@ class MCPHandlers:
             raise ValueError("Current persona not found")
         
         # Get conversation context from session manager
-        conversation_context = self.session.get_conversation_context(current_persona_id)
+        conversation_context_data = self.session.get_conversation_context(current_persona_id)
+        
+        # Format conversation context as string for prompt
+        conversation_context_str = ""
+        if conversation_context_data:
+            parts = []
+            if conversation_context_data.get("turn_count", 0) > 0:
+                parts.append(f"Previous conversation turns: {conversation_context_data['turn_count']}")
+            if conversation_context_data.get("last_activity"):
+                parts.append(f"Last activity: {conversation_context_data['last_activity']}")
+            
+            # Add any additional context
+            for key, value in conversation_context_data.items():
+                if key not in ["id", "turn_count", "last_activity"] and value:
+                    parts.append(f"{key}: {value}")
+                    
+            if parts:
+                conversation_context_str = ". ".join(parts)
         
         # Build enhanced prompt with conversation history
-        if conversation_context:
-            enhanced_prompt = f"Context: {conversation_context}\n\nUser: {message}"
+        if conversation_context_str:
+            enhanced_prompt = f"Context: {conversation_context_str}\n\nUser: {message}"
         else:
             enhanced_prompt = f"User: {message}"
         
@@ -346,29 +361,13 @@ class MCPHandlers:
             )
             processing_time = time.time() - start_time
             
-            # Add messages to conversation history
-            await self._add_message_to_conversation(
-                self.current_persona_id, 
-                "user", 
-                message,
-                {"timestamp": datetime.utcnow().isoformat()}
-            )
-            
-            await self._add_message_to_conversation(
-                self.current_persona_id, 
-                "assistant", 
-                response,
-                {
-                    "processing_time": processing_time,
-                    "tokens_used": int(len(response.split()) * 1.3),
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            )
+            # Note: Conversation history is now managed by MCPSessionManager
+            # The session manager automatically handles conversation state and context
             
             # Create a conversation turn record for persistent storage
             turn = ConversationTurn(
-                conversation_id=self.current_conversation_id or "mcp_session",
-                speaker_id=self.current_persona_id,
+                conversation_id=conversation_id,
+                speaker_id=current_persona_id,
                 turn_number=turn_count,
                 content=response,
                 response_type="direct",
@@ -377,8 +376,7 @@ class MCPHandlers:
                 processing_time=processing_time
             )
             
-            # Calculate intelligent importance for user conversation
-            current_persona = await self.db.load_persona(self.current_persona_id)
+            # Calculate intelligent importance for user conversation (current_persona already loaded above)
             memory_content = f"User said: {message}. I responded: {response}"
             
             importance = self.importance_scorer.calculate_importance(
@@ -396,7 +394,7 @@ class MCPHandlers:
             
             # Store memory of this interaction
             await self.memory.store_memory(Memory(
-                persona_id=self.current_persona_id,
+                persona_id=current_persona_id,
                 content=memory_content,
                 memory_type="conversation",
                 importance=importance
@@ -478,7 +476,9 @@ class MCPHandlers:
     async def handle_persona_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Get detailed status of a persona"""
         
-        persona_id = params.get("persona_id", self.current_persona_id)
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
         if not persona_id:
             raise ValueError("persona_id is required")
         
@@ -548,7 +548,9 @@ class MCPHandlers:
     async def handle_conversation_end(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """End a conversation"""
         
-        conversation_id = params.get("conversation_id", self.current_conversation_id)
+        conversation_id = params.get("conversation_id") or (
+            self.session.get_current_conversation_id(self.websocket_id) if self.websocket_id else None
+        )
         reason = params.get("reason", "user_request")
         
         if not conversation_id:
@@ -560,8 +562,7 @@ class MCPHandlers:
         
         await self.conversation._end_conversation(context, reason)
         
-        if conversation_id == self.current_conversation_id:
-            self.current_conversation_id = None
+        # Note: Session cleanup handled by conversation manager
         
         return {
             "conversation_id": conversation_id,
@@ -577,7 +578,9 @@ class MCPHandlers:
     async def handle_conversation_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Get conversation status"""
         
-        conversation_id = params.get("conversation_id", self.current_conversation_id)
+        conversation_id = params.get("conversation_id") or (
+            self.session.get_current_conversation_id(self.websocket_id) if self.websocket_id else None
+        )
         if not conversation_id:
             raise ValueError("conversation_id is required")
         
@@ -591,7 +594,9 @@ class MCPHandlers:
     async def handle_memory_search(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Search persona memory"""
         
-        persona_id = params.get("persona_id", self.current_persona_id)
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
         query = params.get("query")
         
         if not persona_id:
@@ -628,7 +633,9 @@ class MCPHandlers:
     async def handle_memory_store(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Store a new memory"""
         
-        persona_id = params.get("persona_id", self.current_persona_id)
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
         content = params.get("content")
         
         if not persona_id:
@@ -658,7 +665,9 @@ class MCPHandlers:
     async def handle_memory_stats(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Get memory statistics"""
         
-        persona_id = params.get("persona_id", self.current_persona_id)
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
         if not persona_id:
             raise ValueError("persona_id is required")
         
@@ -671,10 +680,10 @@ class MCPHandlers:
         """Save current session state"""
         
         state = {
-            "current_persona_id": self.current_persona_id,
-            "current_conversation_id": self.current_conversation_id,
+            "current_persona_id": self.session.get_current_persona(self.websocket_id) if self.websocket_id else None,
+            "current_conversation_id": self.session.get_current_conversation_id(self.websocket_id) if self.websocket_id else None,
             "active_conversations": len(self.conversation.active_conversations),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
         return {
@@ -689,8 +698,8 @@ class MCPHandlers:
         # In a full implementation, this would restore from persistent storage
         return {
             "state_loaded": True,
-            "current_persona_id": self.current_persona_id,
-            "current_conversation_id": self.current_conversation_id
+            "current_persona_id": self.session.get_current_persona(self.websocket_id) if self.websocket_id else None,
+            "current_conversation_id": self.session.get_current_conversation_id(self.websocket_id) if self.websocket_id else None
         }
     
     # Visual/UI operations
@@ -707,7 +716,7 @@ class MCPHandlers:
         return {
             "visual_updated": True,
             "update_type": update_type,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     
     # System operations
@@ -721,15 +730,22 @@ class MCPHandlers:
         personas = await self.db.list_personas()
         available_personas = [p for p in personas if p.interaction_state.is_available()]
         
+        # Get current session info (if websocket_id is available)
+        current_persona = None
+        current_conversation = None
+        if self.websocket_id:
+            current_persona = self.session.get_current_persona(self.websocket_id)
+            current_conversation = self.session.get_current_conversation_id(self.websocket_id)
+        
         return {
             "system_status": "operational",
             "llm_available": llm_available,
             "total_personas": len(personas),
             "available_personas": len(available_personas),
             "active_conversations": len(self.conversation.active_conversations),
-            "current_persona": self.current_persona_id,
-            "current_conversation": self.current_conversation_id,
-            "timestamp": datetime.utcnow().isoformat()
+            "current_persona": current_persona,
+            "current_conversation": current_conversation,
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     
     async def handle_system_models(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -749,11 +765,12 @@ class MCPHandlers:
         query = params.get("query", "")
         limit = params.get("limit", 5)
         
-        if not self.current_persona_id:
+        current_persona_id = self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        if not current_persona_id:
             raise ValueError("No persona selected. Use persona.switch first")
         
         memories = await self.memory.search_memories(
-            persona_id=self.current_persona_id,
+            persona_id=current_persona_id,
             query=query,
             n_results=limit
         )
@@ -776,31 +793,34 @@ class MCPHandlers:
         """Get relationship status with another persona"""
         target_persona = params.get("target_persona")
         
-        if not self.current_persona_id:
+        current_persona_id = self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        if not current_persona_id:
             raise ValueError("No persona selected. Use persona.switch first")
         
         if target_persona:
             # Get relationship with specific persona
             relationship = await self.db.get_persona_relationship(
-                self.current_persona_id, 
+                current_persona_id, 
                 target_persona
             )
             return {
-                "current_persona": self.current_persona_id,
+                "current_persona": current_persona_id,
                 "target_persona": target_persona,
                 "relationship": relationship.model_dump() if relationship else None
             }
         else:
             # Get all relationships for current persona
-            relationships = await self.db.get_persona_relationships(self.current_persona_id)
+            relationships = await self.db.get_persona_relationships(current_persona_id)
             return {
-                "current_persona": self.current_persona_id,
+                "current_persona": current_persona_id,
                 "relationships": [r.model_dump() for r in relationships]
             }
 
     async def handle_memory_prune(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Prune memories for current or specified persona"""
-        persona_id = params.get("persona_id", self.current_persona_id)
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
         force = params.get("force", False)
         
         if not persona_id:
@@ -848,7 +868,9 @@ class MCPHandlers:
 
     async def handle_memory_prune_recommendations(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Get pruning recommendations without executing"""
-        persona_id = params.get("persona_id", self.current_persona_id)
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
         
         if not persona_id:
             raise ValueError("No persona specified and no current persona selected")
@@ -902,7 +924,9 @@ class MCPHandlers:
     async def handle_memory_decay_force(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Force decay cycle or specific persona decay"""
         
-        persona_id = params.get("persona_id", self.current_persona_id)
+        persona_id = params.get("persona_id") or (
+            self.session.get_current_persona(self.websocket_id) if self.websocket_id else None
+        )
         decay_factor = params.get("decay_factor", 0.1)
         
         if persona_id:
