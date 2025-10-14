@@ -1,0 +1,27 @@
+{
+  "default_server_config": {
+    "m.homeserver": {
+      "base_url": "http://localhost:8008",
+      "server_name": "localhost"
+    }
+  },
+  "brand": "Persona MCP Element",
+  "integrations_ui_url": "",
+  "integrations_rest_url": "",
+  "integrations_widgets_urls": [],
+  "default_country_code": "US",
+  "show_labs_settings": true,
+  "features": {
+    "feature_new_room_decoration_ui": true,
+    "feature_thread_ui": true,
+    "feature_mjolnir": true
+  },
+  "default_theme": "light",
+  "room_directory": {
+    "servers": ["localhost"]
+  },
+  "enable_presence_by_hs_url": {
+    "https://matrix.org": false,
+    "https://matrix-client.matrix.org": false
+  }
+}

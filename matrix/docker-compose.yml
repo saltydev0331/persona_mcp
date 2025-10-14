@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: persona-synapse
+    ports:
+      - "8008:8008" # Synapse HTTP port
+      - "8448:8448" # Synapse federation port (if needed)
+    volumes:
+      - ./synapse:/data
+    environment:
+      - SYNAPSE_SERVER_NAME=localhost
+      - SYNAPSE_REPORT_STATS=no
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    container_name: persona-postgres
+    environment:
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: synapse_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  element:
+    image: vectorim/element-web:latest
+    container_name: persona-element
+    ports:
+      - "8080:80" # Element web interface
+    volumes:
+      - ./element/config.json:/app/config.json
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

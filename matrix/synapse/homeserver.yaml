@@ -1,0 +1,88 @@
+# Configuration file for Synapse.
+#
+# This is a YAML file: see [1] for a quick introduction. Note in particular
+# that *indentation is important*: all the elements of a list or dictionary
+# should have the same indentation.
+#
+# [1] https://docs.ansible.com/ansible/latest/reference_appendices/YAMLSyntax.html
+#
+# For more information on how to configure Synapse, including a complete accounting of
+# each option, go to docs/usage/configuration/config_documentation.md or
+# https://element-hq.github.io/synapse/latest/usage/configuration/config_documentation.html
+server_name: "localhost"
+pid_file: /data/homeserver.pid
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    resources:
+      - names: [client, federation]
+        compress: false
+database:
+  name: psycopg2
+  args:
+    user: synapse
+    password: synapse_password
+    database: synapse
+    host: postgres
+    port: 5432
+    cp_min: 5
+    cp_max: 10
+log_config: "/data/localhost.log.config"
+media_store_path: /data/media_store
+registration_shared_secret: "7LdDMKb_x6Qgl3fB7PJFT;d8kwdrs+U2=iJGF9o6KR&hwY#..8"
+enable_registration: true
+enable_registration_without_verification: true
+report_stats: false
+macaroon_secret_key: "f*3daFackAsn_oM5WWPnBNS1EZp.Ta;Xkwiy_-qu*EvuOMsqU."
+form_secret: "mgphaLhG^@VhErN6BUp_UPV7k;-V7luVDf8d@:U_=#i1awd9Zu"
+signing_key_path: "/data/localhost.signing.key"
+trusted_key_servers:
+  - server_name: "matrix.org"
+
+# Rate limiting configuration - Very permissive for development
+rc_message:
+  per_second: 100 # Allow 100 messages per second (default: 0.2)
+  burst_count: 500 # Allow bursts of 500 messages (default: 10)
+
+rc_registration:
+  per_second: 10 # Allow 10 registrations per second (default: 0.17)
+  burst_count: 50 # Allow bursts of 50 registrations (default: 3)
+
+rc_login:
+  address:
+    per_second: 10 # Allow 10 login attempts per second per IP (default: 0.17)
+    burst_count: 50 # Allow bursts of 50 login attempts (default: 3)
+  account:
+    per_second: 10 # Allow 10 login attempts per second per account (default: 0.17)
+    burst_count: 50 # Allow bursts of 50 login attempts (default: 3)
+  failed_attempts:
+    per_second: 1 # Allow 1 failed attempt per second (default: 0.17)
+    burst_count: 10 # Allow bursts of 10 failed attempts (default: 3)
+
+rc_admin_redaction:
+  per_second: 10 # Allow 10 admin redactions per second (default: 1)
+  burst_count: 100 # Allow bursts of 100 admin redactions (default: 50)
+
+rc_joins:
+  local:
+    per_second: 10 # Allow 10 local joins per second (default: 0.1)
+    burst_count: 100 # Allow bursts of 100 local joins (default: 10)
+  remote:
+    per_second: 10 # Allow 10 remote joins per second (default: 0.01)
+    burst_count: 100 # Allow bursts of 100 remote joins (default: 10)
+
+rc_invites:
+  per_room:
+    per_second: 10 # Allow 10 invites per room per second (default: 0.3)
+    burst_count: 100 # Allow bursts of 100 invites per room (default: 10)
+  per_user:
+    per_second: 10 # Allow 10 invites per user per second (default: 0.003)
+    burst_count: 50 # Allow bursts of 50 invites per user (default: 5)
+
+# Additional permissive settings for development
+limit_usage_by_mau: false
+max_mau_value: 50
+mau_trial_days: 0
+# vim:ft=yaml
