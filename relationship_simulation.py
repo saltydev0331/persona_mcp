@@ -325,32 +325,83 @@ class MockDatabaseSession:
         self.interaction_history = []
         
     async def fetchone(self, query: str, params: list = None):
-        if "relationships" in query.lower():
+        # Normalize query: lowercase, replace multiple spaces/newlines with single space
+        import re
+        q = re.sub(r'\s+', ' ', query.lower()).strip()
+        
+        # Aggregate/statistics queries
+        if "select count(*) as count from relationships" in q:
+            return [len(self.relationships)]
+        if "select relationship_type, count(*) as count from relationships group by relationship_type" in q:
+            # Not used in fetchone, handled in fetchall
+            return None
+        if "select avg((affinity + trust + respect + intimacy) / 4.0) as avg_compat from relationships" in q:
+            vals = []
+            for rel in self.relationships.values():
+                try:
+                    a = float(rel[2])
+                    t = float(rel[3])
+                    r = float(rel[4])
+                    i = float(rel[5])
+                    vals.append((a + t + r + i) / 4.0)
+                except Exception as e:
+                    print(f"DEBUG: Error parsing relationship values: {e}")
+                    print(f"DEBUG: Relationship data: {rel}")
+                    continue
+            avg = sum(vals) / len(vals) if vals else 0.0
+            print(f"DEBUG: Calculated average compatibility from {len(vals)} relationships: {avg}")
+            print(f"DEBUG: Individual scores: {vals}")
+            return [avg]
+        if "select count(*) as count from interaction_history" in q:
+            return [len(self.interaction_history)]
+        if "select persona1_id as persona_id, count(*) as count from interaction_history group by persona1_id" in q:
+            # Not used in fetchone, handled in fetchall
+            return None
+        # Relationship row fetch
+        if "relationships" in q:
             if params and len(params) >= 4:
                 p1, p2, p2_alt, p1_alt = params[:4]
-                # Check both directions
                 key = tuple(sorted([p1, p2]))
                 rel_data = self.relationships.get(key)
                 if rel_data:
-                    # Convert relationship_type from enum to string if needed
                     rel_list = list(rel_data)
                     if len(rel_list) > 7 and hasattr(rel_list[7], 'value'):
                         rel_list[7] = rel_list[7].value
                     return rel_list
                 return None
-        elif "emotional_states" in query.lower():
+        elif "emotional_states" in q:
             if params and len(params) >= 1:
                 persona_id = params[0]
                 return self.emotional_states.get(persona_id)
         return None
         
     async def fetchall(self, query: str, params: list = None):
-        if "relationships" in query.lower() and params:
+        # Normalize query: lowercase, replace multiple spaces/newlines with single space
+        import re
+        q = re.sub(r'\s+', ' ', query.lower()).strip()
+        
+        # Relationship type distribution
+        if "select relationship_type, count(*) as count from relationships group by relationship_type" in q:
+            type_counts = {}
+            for rel in self.relationships.values():
+                rel_type = rel[6] if not hasattr(rel[6], 'value') else rel[6].value
+                type_counts[rel_type] = type_counts.get(rel_type, 0) + 1
+            return [[k, v] for k, v in type_counts.items()]
+        # Most active personas
+        if "select persona1_id as persona_id, count(*) as count from interaction_history group by persona1_id" in q:
+            counts = {}
+            for row in self.interaction_history:
+                persona1_id = row[0]
+                counts[persona1_id] = counts.get(persona1_id, 0) + 1
+            # Sort by count desc, limit 5
+            sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            return [[k, v] for k, v in sorted_counts]
+        # Relationship row fetch for persona
+        if "relationships" in q and params:
             persona_id = params[0]
             results = []
             for key, rel_data in self.relationships.items():
                 if persona_id in key:
-                    # Convert relationship_type from enum to string if needed
                     rel_list = list(rel_data)
                     if len(rel_list) > 7 and hasattr(rel_list[7], 'value'):
                         rel_list[7] = rel_list[7].value
@@ -363,33 +414,37 @@ class MockDatabaseSession:
             if params and len(params) >= 13:
                 p1, p2 = params[0], params[1]
                 key = tuple(sorted([p1, p2]))
-                # Convert relationship_type enum to string value for storage
                 params_list = list(params)
+                # Ensure indices 2,3,4,5 are floats (affinity, trust, respect, intimacy)
+                for idx in [2,3,4,5]:
+                    try:
+                        params_list[idx] = float(params_list[idx])
+                    except Exception:
+                        params_list[idx] = 0.0
                 if len(params_list) > 7 and hasattr(params_list[7], 'value'):
                     params_list[7] = params_list[7].value
                 self.relationships[key] = params_list
         elif "UPDATE relationships" in query:
             if params and len(params) >= 13:
-                p1, p2 = params[-4], params[-3]  # Last params are the WHERE conditions
+                p1, p2 = params[-4], params[-3]
                 key = tuple(sorted([p1, p2]))
                 if key in self.relationships:
-                    # Update existing record - UPDATE params are:
-                    # [affinity, trust, respect, intimacy, relationship_type, interaction_count, 
-                    #  total_interaction_time, last_interaction, updated_at, p1, p2, p2, p1]
                     existing = list(self.relationships[key])
-                    existing[2] = params[0]  # affinity
-                    existing[3] = params[1]  # trust 
-                    existing[4] = params[2]  # respect
-                    existing[5] = params[3]  # intimacy
+                    # Ensure indices 2,3,4,5 are floats
+                    for idx, param_idx in zip([2,3,4,5], range(4)):
+                        try:
+                            existing[idx] = float(params[param_idx])
+                        except Exception:
+                            existing[idx] = 0.0
                     # Convert relationship_type enum to string if needed
                     if hasattr(params[4], 'value'):
-                        existing[6] = params[4].value  # relationship_type
+                        existing[6] = params[4].value
                     else:
                         existing[6] = params[4]
-                    existing[7] = params[5]  # interaction_count
-                    existing[8] = params[6]  # total_interaction_time
-                    existing[10] = params[7]  # last_interaction
-                    existing[12] = params[8]  # updated_at
+                    existing[7] = params[5]
+                    existing[8] = params[6]
+                    existing[10] = params[7]
+                    existing[12] = params[8]
                     self.relationships[key] = existing
         elif "INSERT INTO interaction_history" in query:
             if params:
