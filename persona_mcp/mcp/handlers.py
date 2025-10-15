@@ -17,6 +17,9 @@ from ..llm import LLMManager
 from ..memory import MemoryImportanceScorer, MemoryPruningSystem, PruningConfig, MemoryDecaySystem, DecayConfig
 from .session import MCPSessionManager
 
+# Import shared core components
+from ..core import DatabaseManager, MemoryManager
+
 
 class MCPHandlers:
     """MCP protocol message handlers"""
@@ -24,14 +27,14 @@ class MCPHandlers:
     def __init__(
         self,
         conversation_engine: ConversationEngine,
-        db_manager: SQLiteManager,
-        memory_manager: VectorMemoryManager,
+        db_manager: DatabaseManager,  # Now accepts shared DatabaseManager
+        memory_manager: MemoryManager,  # Now accepts shared MemoryManager
         llm_manager: LLMManager,
         session_manager: MCPSessionManager
     ):
         self.conversation = conversation_engine
-        self.db = db_manager
-        self.memory = memory_manager
+        self.db = db_manager  # Shared DatabaseManager
+        self.memory = memory_manager  # Shared MemoryManager
         self.llm = llm_manager
         self.session = session_manager
         
@@ -39,14 +42,10 @@ class MCPHandlers:
         self.config = get_config()
         self.logger = get_logger(__name__)
         
-        # Memory importance scoring
-        self.importance_scorer = MemoryImportanceScorer()
-        
-        # Memory pruning system
-        self.pruning_system = MemoryPruningSystem(memory_manager)
-        
-        # Memory decay system
-        self.decay_system = MemoryDecaySystem(memory_manager, self.pruning_system)
+        # Use shared memory management systems
+        self.importance_scorer = memory_manager.importance_scorer
+        self.pruning_system = memory_manager.pruning_system
+        self.decay_system = memory_manager.decay_system
         
         # Session management (now handled by session manager)
         self.session_id: str = str(uuid.uuid4())
@@ -72,6 +71,7 @@ class MCPHandlers:
             "persona.chat": self.handle_persona_chat,
             "persona.list": self.handle_persona_list,
             "persona.create": self.handle_persona_create,
+            "persona.delete": self.handle_persona_delete,
             "persona.status": self.handle_persona_status,
             "persona.memory": self.handle_persona_memory,
             "persona.relationship": self.handle_persona_relationship,
@@ -487,6 +487,47 @@ class MCPHandlers:
             "persona_id": persona.id,
             "name": persona.name,
             "created": True
+        }
+    
+    async def handle_persona_delete(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Delete a persona and all associated data"""
+        
+        persona_id = params.get("persona_id")
+        if not persona_id:
+            raise ValueError("persona_id is required")
+        
+        # Load persona to verify it exists and get info
+        persona = await self.db.load_persona(persona_id)
+        if not persona:
+            raise ValueError(f"Persona not found: {persona_id}")
+        
+        # Store name for response
+        persona_name = persona.name
+        
+        # Check if this persona is currently active in any sessions
+        # Clear any active sessions using this persona
+        if self.websocket_id:
+            current_persona = self.session.get_current_persona(self.websocket_id)
+            if current_persona == persona_id:
+                # Clear the current persona from session
+                self.session.clear_current_persona(self.websocket_id)
+        
+        # Delete persona memories from vector store
+        try:
+            await self.memory.delete_persona_memories(persona_id)
+        except Exception as e:
+            self.logger.warning(f"Error deleting memories for persona {persona_id}: {e}")
+        
+        # Delete persona from database
+        success = await self.db.delete_persona(persona_id)
+        if not success:
+            raise ValueError(f"Failed to delete persona {persona_id} from database")
+        
+        return {
+            "persona_id": persona_id,
+            "name": persona_name,
+            "deleted": True,
+            "message": f"Persona '{persona_name}' and all associated data deleted successfully"
         }
     
     async def handle_persona_status(self, params: Dict[str, Any]) -> Dict[str, Any]:

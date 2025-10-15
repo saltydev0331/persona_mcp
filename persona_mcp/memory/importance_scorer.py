@@ -70,7 +70,7 @@ class MemoryImportanceScorer:
             r'\b(agree|disagree|think|feel|believe|opinion)\b': 0.1  # Opinion sharing
         }
 
-    def calculate_importance(
+    async def calculate_importance(
         self,
         content: str,
         speaker: Persona,

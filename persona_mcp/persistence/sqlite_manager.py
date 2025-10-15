@@ -259,6 +259,46 @@ class SQLiteManager:
         
         return personas
 
+    async def delete_persona(self, persona_id: str) -> bool:
+        """Delete a persona and all associated data"""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # Delete in order to respect foreign key constraints
+                
+                # Delete from conversation_turns
+                await db.execute("""
+                    DELETE FROM conversation_turns WHERE speaker_id = ?
+                """, (persona_id,))
+                
+                # Delete from memories
+                await db.execute("""
+                    DELETE FROM memories WHERE persona_id = ?
+                """, (persona_id,))
+                
+                # Delete from relationships
+                await db.execute("""
+                    DELETE FROM relationships 
+                    WHERE persona1_id = ? OR persona2_id = ?
+                """, (persona_id, persona_id))
+                
+                # Delete from persona_interaction_states
+                await db.execute("""
+                    DELETE FROM persona_interaction_states WHERE persona_id = ?
+                """, (persona_id,))
+                
+                # Finally delete the persona itself
+                await db.execute("""
+                    DELETE FROM personas WHERE id = ?
+                """, (persona_id,))
+                
+                await db.commit()
+                self.logger.info(f"Successfully deleted persona {persona_id} and all associated data")
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Error deleting persona {persona_id}: {e}")
+            return False
+
     # Relationship operations
     async def save_relationship(self, relationship: Relationship) -> bool:
         """Save or update a relationship"""

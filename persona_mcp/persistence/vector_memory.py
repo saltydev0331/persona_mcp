@@ -332,6 +332,34 @@ class VectorMemoryManager:
             self.logger.error(f"Error cleaning up memories for persona {persona_id}: {e}")
             return 0
 
+    async def delete_persona_memories(self, persona_id: str) -> bool:
+        """Delete all memories for a persona"""
+        try:
+            if persona_id not in self.collections:
+                self.logger.warning(f"No memory collection found for persona {persona_id}")
+                return True  # Nothing to delete
+            
+            collection = self.collections[persona_id]
+            
+            # Get all memory IDs for the persona
+            all_memories = await asyncio.to_thread(collection.get)
+            
+            if all_memories["ids"]:
+                # Delete all memories
+                await asyncio.to_thread(collection.delete, ids=all_memories["ids"])
+                self.logger.info(f"Deleted {len(all_memories['ids'])} memories for persona {persona_id}")
+            
+            # Remove the collection from our cache
+            del self.collections[persona_id]
+            
+            # ChromaDB collections are automatically garbage collected when no longer referenced
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error deleting memories for persona {persona_id}: {e}")
+            return False
+
     async def search_cross_persona_memories(
         self, 
         requesting_persona_id: str,

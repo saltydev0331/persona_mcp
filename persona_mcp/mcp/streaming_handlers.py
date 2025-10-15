@@ -18,6 +18,9 @@ from ..llm import LLMManager
 from ..utils import fast_json as json
 from ..logging import get_logger
 
+# Import shared core components
+from ..core import DatabaseManager, MemoryManager
+
 
 class StreamingEventTypes:
     """Event types for streaming responses"""
@@ -34,14 +37,14 @@ class StreamingMCPHandlers:
     def __init__(
         self,
         conversation_engine: ConversationEngine,
-        db_manager: SQLiteManager,
-        memory_manager: VectorMemoryManager,
+        db_manager: DatabaseManager,  # Now accepts shared DatabaseManager
+        memory_manager: MemoryManager,  # Now accepts shared MemoryManager
         llm_manager: LLMManager,
         session_manager
     ):
         self.conversation = conversation_engine
-        self.db = db_manager
-        self.memory = memory_manager
+        self.db = db_manager  # Shared DatabaseManager
+        self.memory = memory_manager  # Shared MemoryManager
         self.llm = llm_manager
         self.session = session_manager
         self.logger = get_logger(__name__)
